@@ -529,80 +529,143 @@ if uploaded_files:
                     (unless limited by our TP bracket).
                     """)
                 
-                # Highlight best
+                # Create tabs for basic and advanced analysis
+                if advanced_stats:
+                    tab1, tab2 = st.tabs(["📊 Basic Analysis", "🔬 Advanced Statistics"])
+                else:
+                    # If advanced stats not selected, just show basic analysis without tabs
+                    tab1 = st.container()
+                    tab2 = None
+                
+                # Highlight best function
                 def highlight_best(row):
                     if row.name == best_idx:
                         return ['background-color: lightgreen'] * len(row)
                     return [''] * len(row)
                 
-                display_cols = ['TP', 'SL', 'Total P/L', 'Avg P/L', 'Hit Rate', 'Payoff Ratio', 
-                               'Expectancy', 'Sharpe Ratio', 'Max DD', 'MAR', 'Profit Factor']
-                if advanced_stats:
-                    display_cols.extend(['T-stat', 'P-value', 'CI 95%', 'JB p-value'])
+                # Basic Analysis Tab
+                with tab1:
+                    st.markdown("### 📊 Basic Performance Metrics")
                     
-                    # Statistical significance interpretation
-                    st.markdown("### 📊 Statistical Significance Analysis")
-                    best_pvalue = best_row.get('P-value', 1.0)
-                    best_ci = best_row.get('CI 95%', '[0, 0]')
-                    best_jb = best_row.get('JB p-value', 1.0)
+                    # Basic columns
+                    basic_cols = ['TP', 'SL', 'Total P/L', 'Avg P/L', 'Hit Rate', 'Payoff Ratio', 
+                                 'Expectancy', 'Sharpe Ratio', 'Max DD', 'MAR', 'Profit Factor']
                     
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.markdown("**Edge Significance (T-Test)**")
-                        if best_pvalue < 0.01:
-                            st.success(f"✅ Highly significant (p={best_pvalue:.4f} < 0.01)")
-                            st.markdown("Very strong evidence of real edge")
-                        elif best_pvalue < 0.05:
-                            st.warning(f"⚠️ Significant (p={best_pvalue:.4f} < 0.05)")
-                            st.markdown("Good evidence of real edge")
-                        else:
-                            st.error(f"❌ Not significant (p={best_pvalue:.4f} ≥ 0.05)")
-                            st.markdown("Insufficient evidence of edge (could be random)")
-                    
-                    with col2:
-                        st.markdown("**95% Confidence Interval**")
-                        st.info(f"True edge likely between: {best_ci}")
-                        # Parse CI to check if it includes zero
-                        try:
-                            ci_str = best_ci.strip('[]')
-                            ci_lower, ci_upper = map(float, ci_str.split(','))
-                            if ci_lower > 0:
-                                st.success("✅ CI excludes zero - edge likely real")
-                            elif ci_upper < 0:
-                                st.error("❌ CI entirely negative - inverse strategy losing")
+                    st.dataframe(
+                        results_df[basic_cols].style.apply(highlight_best, axis=1).format({
+                            'Total P/L': '{:.2f}',
+                            'Avg P/L': '{:.2f}',
+                            'Hit Rate': '{:.2%}',
+                            'Payoff Ratio': '{:.2f}',
+                            'Expectancy': '{:.2f}',
+                            'Sharpe Ratio': '{:.2f}',
+                            'Max DD': '{:.2f}',
+                            'MAR': '{:.2f}',
+                            'Profit Factor': '{:.2f}'
+                        })
+                    )
+                
+                # Advanced Statistics Tab (only if enabled)
+                if tab2 is not None:
+                    with tab2:
+                        st.markdown("### 🔬 Statistical Significance Tests")
+                        
+                        # Show results with statistical tests
+                        stat_cols = ['TP', 'SL', 'Total P/L', 'Expectancy', 'T-stat', 'P-value', 'CI 95%', 'JB p-value']
+                        
+                        st.dataframe(
+                            results_df[stat_cols].style.apply(highlight_best, axis=1).format({
+                                'Total P/L': '{:.2f}',
+                                'Expectancy': '{:.2f}',
+                                'T-stat': '{:.3f}',
+                                'P-value': '{:.4f}',
+                                'JB p-value': '{:.4f}'
+                            })
+                        )
+                        
+                        # Detailed interpretation for best bracket
+                        st.markdown("### 📊 Best Bracket Statistical Analysis")
+                        best_pvalue = best_row.get('P-value', 1.0)
+                        best_ci = best_row.get('CI 95%', '[0, 0]')
+                        best_jb = best_row.get('JB p-value', 1.0)
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown("**Edge Significance (T-Test)**")
+                            if best_pvalue < 0.01:
+                                st.success(f"✅ Highly significant (p={best_pvalue:.4f} < 0.01)")
+                                st.markdown("Very strong evidence of real edge")
+                            elif best_pvalue < 0.05:
+                                st.warning(f"⚠️ Significant (p={best_pvalue:.4f} < 0.05)")
+                                st.markdown("Good evidence of real edge")
                             else:
-                                st.warning("⚠️ CI includes zero - edge uncertain")
-                        except:
-                            pass
-                    
-                    st.markdown("**Distribution Normality (Jarque-Bera Test)**")
-                    if best_jb < 0.05:
-                        st.info(f"Returns are non-normal (p={best_jb:.4f}). Consider using robust risk metrics.")
-                    else:
-                        st.info(f"Returns appear normally distributed (p={best_jb:.4f})")
-                    
-                    st.markdown("---")
+                                st.error(f"❌ Not significant (p={best_pvalue:.4f} ≥ 0.05)")
+                                st.markdown("Insufficient evidence of edge (could be random)")
+                            
+                            # Additional context
+                            st.markdown(f"""
+                            **T-statistic**: {best_row.get('T-stat', 0):.3f}
+                            
+                            Interpretation: The average P/L is {abs(best_row.get('T-stat', 0)):.1f} standard errors 
+                            {'above' if best_row.get('T-stat', 0) > 0 else 'below'} zero.
+                            """)
+                        
+                        with col2:
+                            st.markdown("**95% Confidence Interval**")
+                            st.info(f"True edge likely between: {best_ci}")
+                            # Parse CI to check if it includes zero
+                            try:
+                                ci_str = best_ci.strip('[]')
+                                ci_lower, ci_upper = map(float, ci_str.split(','))
+                                if ci_lower > 0:
+                                    st.success("✅ CI excludes zero - edge likely real")
+                                elif ci_upper < 0:
+                                    st.error("❌ CI entirely negative - inverse strategy losing")
+                                else:
+                                    st.warning("⚠️ CI includes zero - edge uncertain")
+                                
+                                # Additional context
+                                st.markdown(f"""
+                                **Interval width**: {ci_upper - ci_lower:.2f} points
+                                
+                                Narrower intervals indicate more precise estimates.
+                                """)
+                            except:
+                                pass
+                        
+                        st.markdown("---")
+                        st.markdown("**Distribution Normality (Jarque-Bera Test)**")
+                        if best_jb < 0.05:
+                            st.info(f"Returns are non-normal (p={best_jb:.4f}). Consider using robust risk metrics.")
+                            st.markdown("""
+                            Non-normal distributions are common in trading and may indicate:
+                            - Fat tails (extreme events more likely than normal distribution predicts)
+                            - Skewness (asymmetric returns)
+                            - Need for robust statistical methods
+                            """)
+                        else:
+                            st.info(f"Returns appear normally distributed (p={best_jb:.4f})")
+                            st.markdown("Standard risk models and metrics are appropriate.")
+                        
+                        # Monte Carlo simulation preview
+                        st.markdown("---")
+                        st.markdown("### 🎲 Bootstrap Analysis Details")
+                        st.markdown(f"""
+                        The bootstrap confidence interval was calculated by:
+                        1. Resampling {len(best_row['sim_data'])} trades with replacement
+                        2. Calculating mean P/L for each resample
+                        3. Repeating 1,000 times
+                        4. Taking the 2.5th and 97.5th percentiles
+                        
+                        This provides a robust estimate of uncertainty without assuming normal distribution.
+                        """)
                 
-                st.dataframe(
-                    results_df[display_cols].style.apply(highlight_best, axis=1).format({
-                        'Total P/L': '{:.2f}',
-                        'Avg P/L': '{:.2f}',
-                        'Hit Rate': '{:.2%}',
-                        'Payoff Ratio': '{:.2f}',
-                        'Expectancy': '{:.2f}',
-                        'Sharpe Ratio': '{:.2f}',
-                        'Max DD': '{:.2f}',
-                        'MAR': '{:.2f}',
-                        'Profit Factor': '{:.2f}'
-                    })
-                )
-                
-                # Best bracket details
+                # Best bracket details (shown above tabs)
                 best_row = results_df.iloc[best_idx]
                 st.success(f"🎯 Best bracket: TP={best_row['TP']}, SL={best_row['SL']} "
                           f"(optimized for {edge_metric}: {best_row[metric_map[edge_metric]]:.2f})")
                 
-                # Edge comparison
+                # Edge comparison (shown above tabs)
                 original_total = df['p/l (points)'].sum()
                 inverse_simple = -original_total  # Simple inverse without brackets
                 inverse_optimized = best_row['Total P/L']
@@ -620,7 +683,10 @@ if uploaded_files:
                              delta=f"{inverse_optimized - original_total:.2f}", 
                              delta_color="normal")
                 
-                # Visualizations
+                st.markdown("---")
+                
+                # Visualizations (shown below tabs)
+                st.markdown("### 📊 Visualizations")
                 col1, col2 = st.columns(2)
                 
                 with col1:
