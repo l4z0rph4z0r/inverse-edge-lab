@@ -14,6 +14,7 @@ from scipy import stats
 import statsmodels.api as sm
 from statsmodels.stats.stattools import jarque_bera
 import warnings
+from translations import get_text
 
 warnings.filterwarnings('ignore')
 
@@ -26,19 +27,44 @@ if REDIS_URL and REDIS_TOKEN:
 else:
     r = None  # Fallback for local dev
 
+# Initialize language in session state
+if 'language' not in st.session_state:
+    st.session_state.language = 'en'
+
 # Page config
-st.set_page_config(page_title="Inverse Edge Lab", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title=get_text("page_title", st.session_state.language), 
+    layout="wide", 
+    initial_sidebar_state="expanded"
+)
+
+# Language selector in the top right
+col1, col2, col3 = st.columns([10, 1, 1])
+with col3:
+    language = st.selectbox(
+        "🌐",
+        options=["en", "it"],
+        index=0 if st.session_state.language == "en" else 1,
+        format_func=lambda x: "🇬🇧 EN" if x == "en" else "🇮🇹 IT",
+        key="lang_selector"
+    )
+    if language != st.session_state.language:
+        st.session_state.language = language
+        st.rerun()
+
+# Get current language
+lang = st.session_state.language
 
 # Simple authentication for demo
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
-    st.title("🔄 Inverse Edge Lab - Login")
+    st.title(get_text("login_title", lang))
     with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Login")
+        username = st.text_input(get_text("username", lang))
+        password = st.text_input(get_text("password", lang), type="password")
+        submitted = st.form_submit_button(get_text("login", lang))
         
         if submitted:
             # Simple hardcoded check for demo
@@ -47,18 +73,18 @@ if not st.session_state.authenticated:
                 st.session_state.username = username
                 st.rerun()
             else:
-                st.error("Invalid username or password")
+                st.error(get_text("invalid_credentials", lang))
     st.stop()
 
 # Sidebar
 with st.sidebar:
-    st.header("⚙️ Simulation Controls")
-    if st.button("Logout"):
+    st.header(get_text("simulation_controls", lang))
+    if st.button(get_text("logout", lang)):
         st.session_state.authenticated = False
         st.rerun()
     
     # Bracket pairs
-    st.subheader("Bracket Pairs (TP, SL)")
+    st.subheader(get_text("bracket_pairs", lang))
     default_brackets = [(10, 10), (15, 10), (20, 10), (30, 15)]
     
     if 'brackets' not in st.session_state:
@@ -71,11 +97,11 @@ with st.sidebar:
     with col2:
         new_sl = st.number_input("SL", min_value=1, value=10)
     
-    if st.button("➕ Add Bracket"):
+    if st.button(get_text("add_bracket", lang)):
         st.session_state.brackets.append((new_tp, new_sl))
     
     # Display current brackets
-    st.write("Current brackets:")
+    st.write(get_text("current_brackets", lang))
     for i, (tp, sl) in enumerate(st.session_state.brackets):
         col1, col2, col3 = st.columns([2, 2, 1])
         with col1:
@@ -88,22 +114,22 @@ with st.sidebar:
                 st.rerun()
     
     # Risk-reward lock
-    rr_lock = st.checkbox("Lock Risk-Reward Ratio")
+    rr_lock = st.checkbox(get_text("lock_rr", lang))
     if rr_lock:
-        rr_ratio = st.slider("R:R Ratio", 0.5, 5.0, 2.0, 0.1)
+        rr_ratio = st.slider(get_text("rr_ratio", lang), 0.5, 5.0, 2.0, 0.1)
     
     # Edge metric
     edge_metric = st.selectbox(
-        "Optimize for metric:",
+        get_text("optimize_metric", lang),
         ["Expectancy", "Sharpe Ratio", "Profit Factor", "Hit Rate", "Total P/L"]
     )
     
     # Advanced stats
-    advanced_stats = st.checkbox("Run advanced significance tests")
+    advanced_stats = st.checkbox(get_text("run_advanced_tests", lang))
     
     if advanced_stats:
-        with st.expander("📊 What are Advanced Significance Tests?"):
-            st.markdown("""
+        with st.expander(get_text("advanced_tests_title", lang)):
+            st.markdown(get_text("advanced_tests_desc", lang))"""
             **Advanced tests validate if your edge is statistically significant or just luck:**
             
             • **T-Test**: Tests if average P/L is significantly different from zero
@@ -124,22 +150,22 @@ with st.sidebar:
             """)
     
     # Run button
-    run_sim = st.button("🚀 Run Simulation", type="primary", use_container_width=True)
+    run_sim = st.button(get_text("run_simulation", lang), type="primary", use_container_width=True)
 
 # Main content
-st.title("🔄 Inverse Edge Lab")
-st.markdown("*Discover the hidden edge in your trading inversions*")
+st.title(get_text("app_title", lang))
+st.markdown(get_text("app_subtitle", lang))
 
 # File upload
 uploaded_files = st.file_uploader(
-    "Upload trade logs", 
+    get_text("upload_files", lang), 
     type=['csv', 'xlsx', 'xls'], 
     accept_multiple_files=True
 )
 
 # Mathematical explanation
-with st.expander("📐 Mathematical Framework & Simulation Logic", expanded=False):
-    st.markdown("""
+with st.expander(get_text("math_framework_title", lang), expanded=False):
+    st.markdown(get_text("math_framework_content", lang))"""
     ## How Inverse Trading Simulation Works
     
     ### 1. Core Concept
@@ -229,13 +255,13 @@ def load_data(files):
             df = pd.read_excel(file)
         
         # Show original columns for debugging
-        st.write(f"📁 File: {file.name}")
-        st.write(f"Original columns: {list(df.columns)}")
+        st.write(get_text("file_label", lang, name=file.name))
+        st.write(get_text("original_columns", lang, cols=list(df.columns)))
         
         # Normalize columns - make lowercase and strip spaces, handle numeric columns
         df.columns = [str(col).strip().lower() if pd.notna(col) else f'column_{i}' 
                       for i, col in enumerate(df.columns)]
-        st.write(f"Normalized columns: {list(df.columns)}")
+        st.write(get_text("normalized_columns", lang, cols=list(df.columns)))
         
         # Map to required schema
         required_cols = ['symbol', 'entry time', 'p/l (points)', 'drawdown (points)', 'run-up (points)', 'd/r flag']
@@ -328,14 +354,14 @@ def load_data(files):
         
         # Show mapping results
         if missing_cols:
-            st.error(f"❌ Missing required columns: {missing_cols}")
+            st.error(get_text("missing_columns", lang, cols=missing_cols))
             st.info("Please ensure your file has these columns (exact or similar names):")
             for col in required_cols:
                 st.write(f"- {col}")
             return None
         
-        st.success(f"✅ Found all required columns!")
-        st.write("Column mapping:", col_mapping)
+        st.success(get_text("columns_found", lang))
+        st.write(get_text("column_mapping", lang), col_mapping)
         
         # Rename columns
         df = df.rename(columns=col_mapping)
@@ -367,15 +393,15 @@ if uploaded_files:
     df = load_data(uploaded_files)
     
     if df is not None:
-        st.success(f"Loaded {len(df)} trades from {len(uploaded_files)} files")
+        st.success(get_text("loaded_trades", lang, count=len(df), files=len(uploaded_files)))
         
         # Data preview
-        with st.expander("📊 Data Preview"):
+        with st.expander(get_text("data_preview", lang)):
             st.dataframe(df.head(20))
         
         # Simulation
         if run_sim and st.session_state.brackets:
-            with st.spinner("Running simulations..."):
+            with st.spinner(get_text("running_simulations", lang)):
                 
                 def simulate_inversions(data, brackets):
                     results = []
@@ -506,11 +532,11 @@ if uploaded_files:
                 best_row = results_df.iloc[best_idx]  # Define best_row here
                 
                 # Display results
-                st.header("📈 Simulation Results")
+                st.header(get_text("simulation_results", lang))
                 
                 # Explain the simulation
-                with st.expander("ℹ️ How Inverse Trading Simulation Works"):
-                    st.markdown("""
+                with st.expander(get_text("how_inverse_works_title", lang)):
+                    st.markdown(get_text("how_inverse_works", lang))"""
                     **Inverse Trading Strategy**: We bet AGAINST each trader's position.
                     
                     **Key Concepts**:
@@ -532,7 +558,7 @@ if uploaded_files:
                 
                 # Create tabs for basic and advanced analysis
                 if advanced_stats:
-                    tab1, tab2 = st.tabs(["📊 Basic Analysis", "🔬 Advanced Statistics"])
+                    tab1, tab2 = st.tabs([get_text("basic_analysis_tab", lang), get_text("advanced_stats_tab", lang)])
                 else:
                     # If advanced stats not selected, just show basic analysis without tabs
                     tab1 = st.container()
@@ -546,7 +572,7 @@ if uploaded_files:
                 
                 # Basic Analysis Tab
                 with tab1:
-                    st.markdown("### 📊 Basic Performance Metrics")
+                    st.markdown(get_text("basic_metrics_title", lang))
                     
                     # Basic columns
                     basic_cols = ['TP', 'SL', 'Total P/L', 'Avg P/L', 'Hit Rate', 'Payoff Ratio', 
@@ -569,7 +595,7 @@ if uploaded_files:
                 # Advanced Statistics Tab (only if enabled)
                 if tab2 is not None:
                     with tab2:
-                        st.markdown("### 🔬 Statistical Significance Tests")
+                        st.markdown(get_text("statistical_tests_title", lang))
                         
                         # Show results with statistical tests
                         stat_cols = ['TP', 'SL', 'Total P/L', 'Expectancy', 'T-stat', 'P-value', 'CI 95%', 'JB p-value']
@@ -585,23 +611,23 @@ if uploaded_files:
                         )
                         
                         # Detailed interpretation for best bracket
-                        st.markdown("### 📊 Best Bracket Statistical Analysis")
+                        st.markdown(get_text("best_bracket_analysis", lang))
                         best_pvalue = best_row.get('P-value', 1.0)
                         best_ci = best_row.get('CI 95%', '[0, 0]')
                         best_jb = best_row.get('JB p-value', 1.0)
                         
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.markdown("**Edge Significance (T-Test)**")
+                            st.markdown(get_text("edge_significance", lang))
                             if best_pvalue < 0.01:
-                                st.success(f"✅ Highly significant (p={best_pvalue:.4f} < 0.01)")
-                                st.markdown("Very strong evidence of real edge")
+                                st.success(get_text("highly_significant", lang, p=best_pvalue))
+                                st.markdown(get_text("very_strong_evidence", lang))
                             elif best_pvalue < 0.05:
-                                st.warning(f"⚠️ Significant (p={best_pvalue:.4f} < 0.05)")
-                                st.markdown("Good evidence of real edge")
+                                st.warning(get_text("significant", lang, p=best_pvalue))
+                                st.markdown(get_text("good_evidence", lang))
                             else:
-                                st.error(f"❌ Not significant (p={best_pvalue:.4f} ≥ 0.05)")
-                                st.markdown("Insufficient evidence of edge (could be random)")
+                                st.error(get_text("not_significant", lang, p=best_pvalue))
+                                st.markdown(get_text("insufficient_evidence", lang))
                             
                             # Additional context
                             st.markdown(f"""
@@ -612,32 +638,32 @@ if uploaded_files:
                             """)
                         
                         with col2:
-                            st.markdown("**95% Confidence Interval**")
-                            st.info(f"True edge likely between: {best_ci}")
+                            st.markdown(get_text("confidence_interval", lang))
+                            st.info(get_text("true_edge_between", lang, ci=best_ci))
                             # Parse CI to check if it includes zero
                             try:
                                 ci_str = best_ci.strip('[]')
                                 ci_lower, ci_upper = map(float, ci_str.split(','))
                                 if ci_lower > 0:
-                                    st.success("✅ CI excludes zero - edge likely real")
+                                    st.success(get_text("ci_excludes_zero", lang))
                                 elif ci_upper < 0:
-                                    st.error("❌ CI entirely negative - inverse strategy losing")
+                                    st.error(get_text("ci_negative", lang))
                                 else:
-                                    st.warning("⚠️ CI includes zero - edge uncertain")
+                                    st.warning(get_text("ci_includes_zero", lang))
                                 
                                 # Additional context
                                 st.markdown(f"""
-                                **Interval width**: {ci_upper - ci_lower:.2f} points
+                                {get_text("interval_width", lang, width=ci_upper - ci_lower)}
                                 
-                                Narrower intervals indicate more precise estimates.
+                                {get_text("narrower_intervals", lang)}
                                 """)
                             except:
                                 pass
                         
                         st.markdown("---")
-                        st.markdown("**Distribution Normality (Jarque-Bera Test)**")
+                        st.markdown(get_text("distribution_normality", lang))
                         if best_jb < 0.05:
-                            st.info(f"Returns are non-normal (p={best_jb:.4f}). Consider using robust risk metrics.")
+                            st.info(get_text("non_normal_returns", lang, p=best_jb))
                             st.markdown("""
                             Non-normal distributions are common in trading and may indicate:
                             - Fat tails (extreme events more likely than normal distribution predicts)
@@ -645,25 +671,20 @@ if uploaded_files:
                             - Need for robust statistical methods
                             """)
                         else:
-                            st.info(f"Returns appear normally distributed (p={best_jb:.4f})")
+                            st.info(get_text("normal_returns", lang, p=best_jb))
                             st.markdown("Standard risk models and metrics are appropriate.")
                         
                         # Monte Carlo simulation preview
                         st.markdown("---")
-                        st.markdown("### 🎲 Bootstrap Analysis Details")
-                        st.markdown(f"""
-                        The bootstrap confidence interval was calculated by:
-                        1. Resampling {len(best_row['sim_data'])} trades with replacement
-                        2. Calculating mean P/L for each resample
-                        3. Repeating 1,000 times
-                        4. Taking the 2.5th and 97.5th percentiles
-                        
-                        This provides a robust estimate of uncertainty without assuming normal distribution.
-                        """)
+                        st.markdown(get_text("bootstrap_title", lang))
+                        st.markdown(get_text("bootstrap_desc", lang, count=len(best_row['sim_data'])))
                 
                 # Best bracket details (shown above tabs)
-                st.success(f"🎯 Best bracket: TP={best_row['TP']}, SL={best_row['SL']} "
-                          f"(optimized for {edge_metric}: {best_row[metric_map[edge_metric]]:.2f})")
+                st.success(get_text("best_bracket", lang, 
+                                  tp=best_row['TP'], 
+                                  sl=best_row['SL'],
+                                  metric=edge_metric,
+                                  value=best_row[metric_map[edge_metric]]))
                 
                 # Edge comparison (shown above tabs)
                 original_total = df['p/l (points)'].sum()
@@ -672,21 +693,21 @@ if uploaded_files:
                 
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Original Traders' P/L", f"{original_total:.2f}", 
+                    st.metric(get_text("original_pl", lang), f"{original_total:.2f}", 
                              delta=None, delta_color="off")
                 with col2:
-                    st.metric("Simple Inverse P/L", f"{inverse_simple:.2f}", 
+                    st.metric(get_text("simple_inverse_pl", lang), f"{inverse_simple:.2f}", 
                              delta=f"{inverse_simple - original_total:.2f}", 
                              delta_color="normal")
                 with col3:
-                    st.metric("Optimized Inverse P/L", f"{inverse_optimized:.2f}", 
+                    st.metric(get_text("optimized_inverse_pl", lang), f"{inverse_optimized:.2f}", 
                              delta=f"{inverse_optimized - original_total:.2f}", 
                              delta_color="normal")
                 
                 st.markdown("---")
                 
                 # Visualizations (shown below tabs)
-                st.markdown("### 📊 Visualizations")
+                st.markdown(get_text("visualizations", lang))
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -694,10 +715,11 @@ if uploaded_files:
                     fig, ax = plt.subplots(figsize=(8, 6))
                     best_data = best_row['sim_data']['sim_pl']
                     ax.hist(best_data, bins=30, alpha=0.7, color='blue', edgecolor='black')
-                    ax.axvline(best_data.mean(), color='red', linestyle='--', label=f'Mean: {best_data.mean():.2f}')
+                    ax.axvline(best_data.mean(), color='red', linestyle='--', 
+                              label=get_text("mean_label", lang, value=best_data.mean()))
                     ax.set_xlabel('P/L (points)')
-                    ax.set_ylabel('Frequency')
-                    ax.set_title(f'P/L Distribution (TP={best_row["TP"]}, SL={best_row["SL"]})')
+                    ax.set_ylabel(get_text("frequency", lang))
+                    ax.set_title(get_text("pl_distribution", lang, tp=best_row["TP"], sl=best_row["SL"]))
                     ax.legend()
                     ax.grid(True, alpha=0.3)
                     st.pyplot(fig)
@@ -708,9 +730,9 @@ if uploaded_files:
                     equity = best_row['sim_data']['sim_pl'].cumsum()
                     ax.plot(equity, color='green', linewidth=2)
                     ax.fill_between(range(len(equity)), 0, equity, alpha=0.3, color='green')
-                    ax.set_xlabel('Trade Number')
-                    ax.set_ylabel('Cumulative P/L')
-                    ax.set_title(f'Equity Curve (TP={best_row["TP"]}, SL={best_row["SL"]})')
+                    ax.set_xlabel(get_text("trade_number", lang))
+                    ax.set_ylabel(get_text("cumulative_pl", lang))
+                    ax.set_title(get_text("equity_curve", lang, tp=best_row["TP"], sl=best_row["SL"]))
                     ax.grid(True, alpha=0.3)
                     st.pyplot(fig)
                 
@@ -723,7 +745,7 @@ if uploaded_files:
                 
                 csv = results_df[export_cols].to_csv(index=False)
                 st.download_button(
-                    label="📥 Download Results CSV",
+                    label=get_text("download_csv", lang),
                     data=csv,
                     file_name="inverse_edge_results.csv",
                     mime="text/csv"
@@ -736,8 +758,8 @@ if uploaded_files:
                 st.session_state.results_df = results_df
                 
 # LLM Assistant
-st.header("🤖 AI Assistant")
-st.info("Ask questions about your simulation results - powered by Perplexity AI!")
+st.header(get_text("ai_assistant", lang))
+st.info(get_text("ai_info", lang))
 
 # Perplexity API configuration
 PERPLEXITY_API_KEY = "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"
@@ -838,7 +860,7 @@ def query_perplexity(prompt, context_data=None):
     except Exception as e:
         return f"Error connecting to AI service: {str(e)}"
 
-if prompt := st.chat_input("What would you like to know about the results?"):
+if prompt := st.chat_input(get_text("ai_prompt", lang)):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -848,6 +870,6 @@ if prompt := st.chat_input("What would you like to know about the results?"):
             with st.spinner("Thinking..."):
                 response = query_perplexity(prompt, st.session_state.df)
         else:
-            response = "Please run a simulation first so I can analyze your results!"
+            response = get_text("run_simulation_first", lang)
         st.markdown(response)
         st.session_state.messages.append({"role": "assistant", "content": response})
