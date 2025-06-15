@@ -58,13 +58,60 @@ The application expects trade log files with these 6 columns:
 - **Frontend**: Streamlit
 - **Backend**: Python with pandas, numpy, scipy, statsmodels
 - **Database**: Redis (Upstash)
+- **AI Assistant**: Perplexity AI
 - **Containerization**: Docker & Docker Compose
 - **Testing**: Pytest with Puppeteer for E2E tests
+
+## Language Support
+
+The application supports:
+- 🇬🇧 English
+- 🇮🇹 Italian
+
+Switch languages using the selector in the top-right corner.
 
 ## Environment Variables
 
 - `UPSTASH_REDIS_REST_URL`: Redis connection URL
 - `UPSTASH_REDIS_REST_TOKEN`: Redis authentication token
+
+## Production Deployment
+
+### Using Docker (Recommended)
+
+1. **On a VPS/Cloud Server**:
+```bash
+# Clone the repository
+git clone https://github.com/l4z0rph4z0r/inverse-edge-lab.git
+cd inverse-edge-lab
+
+# Create .env file with your credentials
+echo "UPSTASH_REDIS_REST_URL=your_url_here" > .env
+echo "UPSTASH_REDIS_REST_TOKEN=your_token_here" >> .env
+
+# Run in production
+docker compose up -d
+
+# To update to latest version
+git pull
+docker compose down
+docker compose up -d --build
+```
+
+2. **Using a Cloud Platform**:
+- **Heroku**: Use the included Dockerfile
+- **AWS ECS**: Push to ECR and deploy
+- **Google Cloud Run**: Deploy directly from GitHub
+- **DigitalOcean App Platform**: Connect GitHub repo
+
+### Security Considerations
+
+For production:
+1. Change default admin credentials in `app.py`
+2. Move API keys to environment variables
+3. Use HTTPS (reverse proxy with nginx/traefik)
+4. Set up proper Redis authentication
+5. Implement rate limiting
 
 ## License
 
