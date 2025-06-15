@@ -715,7 +715,13 @@ if uploaded_files:
                     st.pyplot(fig)
                 
                 # Export options
-                csv = results_df[display_cols].to_csv(index=False)
+                # Define all columns for export
+                export_cols = ['TP', 'SL', 'Total P/L', 'Avg P/L', 'Hit Rate', 'Payoff Ratio', 
+                              'Expectancy', 'Sharpe Ratio', 'Max DD', 'MAR', 'Profit Factor']
+                if advanced_stats:
+                    export_cols.extend(['T-stat', 'P-value', 'CI 95%', 'JB p-value'])
+                
+                csv = results_df[export_cols].to_csv(index=False)
                 st.download_button(
                     label="📥 Download Results CSV",
                     data=csv,
