@@ -101,6 +101,28 @@ with st.sidebar:
     # Advanced stats
     advanced_stats = st.checkbox("Run advanced significance tests")
     
+    if advanced_stats:
+        with st.expander("📊 What are Advanced Significance Tests?"):
+            st.markdown("""
+            **Advanced tests validate if your edge is statistically significant or just luck:**
+            
+            • **T-Test**: Tests if average P/L is significantly different from zero
+              - Null hypothesis: Mean P/L = 0 (no edge)
+              - P-value < 0.05 suggests real edge (not random)
+            
+            • **Bootstrap Confidence Interval (95% CI)**: 
+              - Resamples your trades 1000 times to estimate uncertainty
+              - If CI doesn't include zero, edge is likely real
+              - Example: CI [5.2, 12.8] means 95% confident true edge is between 5.2-12.8 points
+            
+            • **Jarque-Bera Normality Test**:
+              - Tests if returns follow normal distribution
+              - Important for risk models that assume normality
+              - P-value < 0.05 indicates non-normal distribution (common in trading)
+            
+            **Why use these?** They help distinguish genuine edge from lucky streaks.
+            """)
+    
     # Run button
     run_sim = st.button("🚀 Run Simulation", type="primary", use_container_width=True)
 
@@ -114,6 +136,87 @@ uploaded_files = st.file_uploader(
     type=['csv', 'xlsx', 'xls'], 
     accept_multiple_files=True
 )
+
+# Mathematical explanation
+with st.expander("📐 Mathematical Framework & Simulation Logic", expanded=False):
+    st.markdown("""
+    ## How Inverse Trading Simulation Works
+    
+    ### 1. Core Concept
+    We simulate taking the **opposite position** of each trader with fixed risk-reward brackets.
+    
+    **Key Insight**: When you bet against a trader:
+    - Their **favorable movement** (run-up) → Your **adverse movement** (potential loss)
+    - Their **unfavorable movement** (drawdown) → Your **favorable movement** (potential profit)
+    
+    ### 2. Mathematical Formulation
+    
+    For each trade `i` in the dataset:
+    - `P/L_original[i]` = Original trader's profit/loss
+    - `RP[i]` = Run-up (maximum favorable excursion for trader)
+    - `DD[i]` = Drawdown (maximum adverse excursion for trader)
+    - `D/R[i]` = Flag indicating which came first (RP or DD)
+    
+    **Inverse Position Calculation**:
+    ```
+    For our inverse position with brackets (TP, SL):
+    
+    IF D/R[i] == "RP" (trader saw profit first):
+        IF RP[i] ≥ SL:  # Their profit hits our stop loss
+            P/L_inverse[i] = -SL
+        ELIF DD[i] ≥ TP:  # Their loss hits our take profit
+            P/L_inverse[i] = +TP
+        ELSE:  # Neither bracket hit
+            P/L_inverse[i] = -P/L_original[i]
+            
+    ELIF D/R[i] == "DD" (trader saw loss first):
+        IF DD[i] ≥ TP:  # Their loss hits our take profit
+            P/L_inverse[i] = +TP
+        ELIF RP[i] ≥ SL:  # Their profit hits our stop loss
+            P/L_inverse[i] = -SL
+        ELSE:  # Neither bracket hit
+            P/L_inverse[i] = -P/L_original[i]
+    ```
+    
+    ### 3. Key Metrics Calculated
+    
+    **Basic Metrics**:
+    - **Total P/L** = Σ P/L_inverse[i]
+    - **Hit Rate** = Count(P/L_inverse > 0) / Total Trades
+    - **Expectancy** = (Hit Rate × Avg Win) - ((1 - Hit Rate) × Avg Loss)
+    - **Sharpe Ratio** = Mean(Returns) / StdDev(Returns) × √252
+    - **Profit Factor** = Gross Profits / Gross Losses
+    
+    **Risk Metrics**:
+    - **Maximum Drawdown** = Largest peak-to-trough decline in equity curve
+    - **MAR Ratio** = Total P/L / Max Drawdown
+    
+    ### 4. Why This Works
+    
+    If traders consistently lose money (negative edge), then:
+    - Taking opposite positions should yield positive expectancy
+    - Fixed brackets (TP/SL) can optimize this edge by:
+      - Limiting losses when traders occasionally win big
+      - Capturing consistent profits from their frequent losses
+    
+    ### 5. Example Scenario
+    
+    **Original Trade**: Trader loses 15 points
+    - Run-up: 5 points (RP)
+    - Drawdown: 20 points (DD)
+    - D/R Flag: "RP" (saw 5 point profit before 20 point loss)
+    
+    **Our Inverse Trade** with TP=10, SL=10:
+    - Trader's 5 point run-up = Our 5 point drawdown (< 10 SL, continues)
+    - Trader's 20 point drawdown = Our 20 point run-up (> 10 TP, locked in)
+    - **Result**: We make +10 points (TP hit)
+    
+    While simple inversion would gain +15, the bracket system:
+    - Protects against occasional large trader wins
+    - Provides consistent, controlled profits
+    """)
+
+st.markdown("---")
 
 def load_data(files):
     dfs = []
@@ -436,6 +539,49 @@ if uploaded_files:
                                'Expectancy', 'Sharpe Ratio', 'Max DD', 'MAR', 'Profit Factor']
                 if advanced_stats:
                     display_cols.extend(['T-stat', 'P-value', 'CI 95%', 'JB p-value'])
+                    
+                    # Statistical significance interpretation
+                    st.markdown("### 📊 Statistical Significance Analysis")
+                    best_pvalue = best_row.get('P-value', 1.0)
+                    best_ci = best_row.get('CI 95%', '[0, 0]')
+                    best_jb = best_row.get('JB p-value', 1.0)
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown("**Edge Significance (T-Test)**")
+                        if best_pvalue < 0.01:
+                            st.success(f"✅ Highly significant (p={best_pvalue:.4f} < 0.01)")
+                            st.markdown("Very strong evidence of real edge")
+                        elif best_pvalue < 0.05:
+                            st.warning(f"⚠️ Significant (p={best_pvalue:.4f} < 0.05)")
+                            st.markdown("Good evidence of real edge")
+                        else:
+                            st.error(f"❌ Not significant (p={best_pvalue:.4f} ≥ 0.05)")
+                            st.markdown("Insufficient evidence of edge (could be random)")
+                    
+                    with col2:
+                        st.markdown("**95% Confidence Interval**")
+                        st.info(f"True edge likely between: {best_ci}")
+                        # Parse CI to check if it includes zero
+                        try:
+                            ci_str = best_ci.strip('[]')
+                            ci_lower, ci_upper = map(float, ci_str.split(','))
+                            if ci_lower > 0:
+                                st.success("✅ CI excludes zero - edge likely real")
+                            elif ci_upper < 0:
+                                st.error("❌ CI entirely negative - inverse strategy losing")
+                            else:
+                                st.warning("⚠️ CI includes zero - edge uncertain")
+                        except:
+                            pass
+                    
+                    st.markdown("**Distribution Normality (Jarque-Bera Test)**")
+                    if best_jb < 0.05:
+                        st.info(f"Returns are non-normal (p={best_jb:.4f}). Consider using robust risk metrics.")
+                    else:
+                        st.info(f"Returns appear normally distributed (p={best_jb:.4f})")
+                    
+                    st.markdown("---")
                 
                 st.dataframe(
                     results_df[display_cols].style.apply(highlight_best, axis=1).format({
