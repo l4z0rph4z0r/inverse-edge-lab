@@ -281,31 +281,38 @@ if uploaded_files:
                         # Copy data
                         sim_df = data.copy()
                         
-                        # Invert P/L
+                        # Store original P/L for reference
                         sim_df['original_pl'] = sim_df['p/l (points)']
-                        sim_df['p/l (points)'] = -sim_df['p/l (points)']
                         
-                        # Calculate outcomes
+                        # Calculate outcomes for inverse trades
                         outcomes = []
                         for _, row in sim_df.iterrows():
-                            runup = row['run-up (points)']
-                            drawdown = row['drawdown (points)']
+                            runup = abs(row['run-up (points)'])  # Absolute value
+                            drawdown = abs(row['drawdown (points)'])  # Absolute value
                             dr_flag = row['d/r flag']
                             
-                            if dr_flag == 'RP':  # Run-up first
-                                if runup >= tp:
-                                    outcomes.append(tp)
-                                elif drawdown >= sl:
+                            # When we bet AGAINST the trader:
+                            # - Their run-up becomes our drawdown
+                            # - Their drawdown becomes our run-up
+                            
+                            if dr_flag == 'RP':  # Original trade had run-up first
+                                # For inverse trade: we face drawdown first (their runup)
+                                if runup >= sl:  # Their runup hits our stop loss
                                     outcomes.append(-sl)
-                                else:
-                                    outcomes.append(0)
-                            else:  # Drawdown first
-                                if drawdown >= sl:
-                                    outcomes.append(-sl)
-                                elif runup >= tp:
+                                elif drawdown >= tp:  # Their drawdown hits our take profit
                                     outcomes.append(tp)
                                 else:
-                                    outcomes.append(0)
+                                    # Neither TP nor SL hit, return inverse of original P/L
+                                    outcomes.append(-row['original_pl'])
+                            else:  # Original trade had drawdown first (DD)
+                                # For inverse trade: we face run-up first (their drawdown)
+                                if drawdown >= tp:  # Their drawdown hits our take profit
+                                    outcomes.append(tp)
+                                elif runup >= sl:  # Their runup hits our stop loss
+                                    outcomes.append(-sl)
+                                else:
+                                    # Neither TP nor SL hit, return inverse of original P/L
+                                    outcomes.append(-row['original_pl'])
                         
                         sim_df['sim_pl'] = outcomes
                         
@@ -397,6 +404,28 @@ if uploaded_files:
                 # Display results
                 st.header("📈 Simulation Results")
                 
+                # Explain the simulation
+                with st.expander("ℹ️ How Inverse Trading Simulation Works"):
+                    st.markdown("""
+                    **Inverse Trading Strategy**: We bet AGAINST each trader's position.
+                    
+                    **Key Concepts**:
+                    - When a trader goes LONG, we go SHORT (and vice versa)
+                    - The trader's **run-up** (favorable movement) becomes our **adverse movement**
+                    - The trader's **drawdown** (unfavorable movement) becomes our **favorable movement**
+                    
+                    **Simulation Logic**:
+                    1. For each trade, we take the opposite position
+                    2. We apply fixed Take Profit (TP) and Stop Loss (SL) brackets
+                    3. Based on the D/R flag, we know which movement happened first:
+                       - **RP (Run-up first)**: Trader saw profit first → We face loss first
+                       - **DD (Drawdown first)**: Trader saw loss first → We see profit first
+                    4. We check if our TP or SL gets hit based on these movements
+                    
+                    **Example**: If a trader lost 20 points, our inverse position would gain 20 points 
+                    (unless limited by our TP bracket).
+                    """)
+                
                 # Highlight best
                 def highlight_best(row):
                     if row.name == best_idx:
@@ -426,6 +455,24 @@ if uploaded_files:
                 best_row = results_df.iloc[best_idx]
                 st.success(f"🎯 Best bracket: TP={best_row['TP']}, SL={best_row['SL']} "
                           f"(optimized for {edge_metric}: {best_row[metric_map[edge_metric]]:.2f})")
+                
+                # Edge comparison
+                original_total = df['p/l (points)'].sum()
+                inverse_simple = -original_total  # Simple inverse without brackets
+                inverse_optimized = best_row['Total P/L']
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Original Traders' P/L", f"{original_total:.2f}", 
+                             delta=None, delta_color="off")
+                with col2:
+                    st.metric("Simple Inverse P/L", f"{inverse_simple:.2f}", 
+                             delta=f"{inverse_simple - original_total:.2f}", 
+                             delta_color="normal")
+                with col3:
+                    st.metric("Optimized Inverse P/L", f"{inverse_optimized:.2f}", 
+                             delta=f"{inverse_optimized - original_total:.2f}", 
+                             delta_color="normal")
                 
                 # Visualizations
                 col1, col2 = st.columns(2)
@@ -464,12 +511,19 @@ if uploaded_files:
                     mime="text/csv"
                 )
                 
-                # Store in state for LLM
+                # Store in state for LLM with current bracket info
                 st.session_state.df = best_row['sim_data']
+                st.session_state.TP = best_row['TP']
+                st.session_state.SL = best_row['SL']
+                st.session_state.results_df = results_df
                 
 # LLM Assistant
 st.header("🤖 AI Assistant")
-st.info("Ask questions about your simulation results!")
+st.info("Ask questions about your simulation results - powered by Perplexity AI!")
+
+# Perplexity API configuration
+PERPLEXITY_API_KEY = "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"
+PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions"
 
 if 'messages' not in st.session_state:
     st.session_state.messages = []
@@ -478,6 +532,94 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
+def query_perplexity(prompt, context_data=None):
+    """Query Perplexity AI with context about the simulation results"""
+    import requests
+    
+    # Build context message
+    system_message = "You are an AI assistant specialized in analyzing inverse trading simulations. "
+    
+    if context_data is not None:
+        # Extract comprehensive statistics from the data
+        total_trades = len(context_data)
+        wins = (context_data['sim_pl'] > 0).sum()
+        losses = (context_data['sim_pl'] < 0).sum()
+        breakeven = (context_data['sim_pl'] == 0).sum()
+        avg_pl = context_data['sim_pl'].mean()
+        total_pl = context_data['sim_pl'].sum()
+        hit_rate = wins / total_trades if total_trades > 0 else 0
+        
+        # Calculate additional metrics
+        avg_win = context_data[context_data['sim_pl'] > 0]['sim_pl'].mean() if wins > 0 else 0
+        avg_loss = abs(context_data[context_data['sim_pl'] < 0]['sim_pl'].mean()) if losses > 0 else 0
+        
+        # Analyze original vs simulated
+        original_total = context_data['original_pl'].sum()
+        
+        # Count TP/SL hits
+        tp_hits = 0
+        sl_hits = 0
+        neither_hits = 0
+        
+        if 'TP' in st.session_state and 'SL' in st.session_state:
+            current_tp = st.session_state.get('TP', 0)
+            current_sl = st.session_state.get('SL', 0)
+            tp_hits = (context_data['sim_pl'] == current_tp).sum()
+            sl_hits = (context_data['sim_pl'] == -current_sl).sum()
+            neither_hits = total_trades - tp_hits - sl_hits
+        
+        system_message += f"""
+        Current inverse trading simulation results:
+        
+        OVERVIEW:
+        - Total trades analyzed: {total_trades}
+        - Original traders' total P/L: {original_total:.2f} points
+        - Inverse strategy total P/L: {total_pl:.2f} points
+        - Edge gained by inverting: {total_pl - (-original_total):.2f} points
+        
+        TRADE OUTCOMES:
+        - Winning trades: {wins} ({hit_rate*100:.1f}%)
+        - Losing trades: {losses} ({losses/total_trades*100 if total_trades > 0 else 0:.1f}%)
+        - Breakeven trades: {breakeven}
+        - Take Profit hits: {tp_hits}
+        - Stop Loss hits: {sl_hits}
+        - Neither TP/SL hit: {neither_hits}
+        
+        PERFORMANCE METRICS:
+        - Average P/L per trade: {avg_pl:.2f} points
+        - Average winning trade: {avg_win:.2f} points
+        - Average losing trade: -{avg_loss:.2f} points
+        - Win/Loss ratio: {avg_win/avg_loss if avg_loss > 0 else 0:.2f}
+        
+        The simulation tests betting AGAINST traders' positions using fixed TP/SL brackets.
+        When a trader's position moves favorably (run-up), it becomes our adverse movement.
+        When a trader's position moves unfavorably (drawdown), it becomes our favorable movement.
+        
+        Help the user understand if there's a statistical edge in betting against these traders.
+        """
+    
+    headers = {
+        "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": "llama-3.1-sonar-small-128k-online",
+        "messages": [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1000
+    }
+    
+    try:
+        response = requests.post(PERPLEXITY_API_URL, headers=headers, json=payload)
+        response.raise_for_status()
+        return response.json()['choices'][0]['message']['content']
+    except Exception as e:
+        return f"Error connecting to AI service: {str(e)}"
+
 if prompt := st.chat_input("What would you like to know about the results?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -485,7 +627,8 @@ if prompt := st.chat_input("What would you like to know about the results?"):
     
     with st.chat_message("assistant"):
         if 'df' in st.session_state:
-            response = f"I can see you have {len(st.session_state.df)} trades in your simulation. The data shows interesting patterns that could be explored further."
+            with st.spinner("Thinking..."):
+                response = query_perplexity(prompt, st.session_state.df)
         else:
             response = "Please run a simulation first so I can analyze your results!"
         st.markdown(response)
