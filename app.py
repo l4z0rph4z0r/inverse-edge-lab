@@ -503,6 +503,7 @@ if uploaded_files:
                     'Total P/L': 'Total P/L'
                 }
                 best_idx = results_df[metric_map[edge_metric]].idxmax()
+                best_row = results_df.iloc[best_idx]  # Define best_row here
                 
                 # Display results
                 st.header("📈 Simulation Results")
@@ -661,7 +662,6 @@ if uploaded_files:
                         """)
                 
                 # Best bracket details (shown above tabs)
-                best_row = results_df.iloc[best_idx]
                 st.success(f"🎯 Best bracket: TP={best_row['TP']}, SL={best_row['SL']} "
                           f"(optimized for {edge_metric}: {best_row[metric_map[edge_metric]]:.2f})")
                 
