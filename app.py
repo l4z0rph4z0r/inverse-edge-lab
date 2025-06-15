@@ -129,25 +129,7 @@ with st.sidebar:
     
     if advanced_stats:
         with st.expander(get_text("advanced_tests_title", lang)):
-            st.markdown(get_text("advanced_tests_desc", lang))"""
-            **Advanced tests validate if your edge is statistically significant or just luck:**
-            
-            • **T-Test**: Tests if average P/L is significantly different from zero
-              - Null hypothesis: Mean P/L = 0 (no edge)
-              - P-value < 0.05 suggests real edge (not random)
-            
-            • **Bootstrap Confidence Interval (95% CI)**: 
-              - Resamples your trades 1000 times to estimate uncertainty
-              - If CI doesn't include zero, edge is likely real
-              - Example: CI [5.2, 12.8] means 95% confident true edge is between 5.2-12.8 points
-            
-            • **Jarque-Bera Normality Test**:
-              - Tests if returns follow normal distribution
-              - Important for risk models that assume normality
-              - P-value < 0.05 indicates non-normal distribution (common in trading)
-            
-            **Why use these?** They help distinguish genuine edge from lucky streaks.
-            """)
+            st.markdown(get_text("advanced_tests_desc", lang))
     
     # Run button
     run_sim = st.button(get_text("run_simulation", lang), type="primary", use_container_width=True)
@@ -165,82 +147,7 @@ uploaded_files = st.file_uploader(
 
 # Mathematical explanation
 with st.expander(get_text("math_framework_title", lang), expanded=False):
-    st.markdown(get_text("math_framework_content", lang))"""
-    ## How Inverse Trading Simulation Works
-    
-    ### 1. Core Concept
-    We simulate taking the **opposite position** of each trader with fixed risk-reward brackets.
-    
-    **Key Insight**: When you bet against a trader:
-    - Their **favorable movement** (run-up) → Your **adverse movement** (potential loss)
-    - Their **unfavorable movement** (drawdown) → Your **favorable movement** (potential profit)
-    
-    ### 2. Mathematical Formulation
-    
-    For each trade `i` in the dataset:
-    - `P/L_original[i]` = Original trader's profit/loss
-    - `RP[i]` = Run-up (maximum favorable excursion for trader)
-    - `DD[i]` = Drawdown (maximum adverse excursion for trader)
-    - `D/R[i]` = Flag indicating which came first (RP or DD)
-    
-    **Inverse Position Calculation**:
-    ```
-    For our inverse position with brackets (TP, SL):
-    
-    IF D/R[i] == "RP" (trader saw profit first):
-        IF RP[i] ≥ SL:  # Their profit hits our stop loss
-            P/L_inverse[i] = -SL
-        ELIF DD[i] ≥ TP:  # Their loss hits our take profit
-            P/L_inverse[i] = +TP
-        ELSE:  # Neither bracket hit
-            P/L_inverse[i] = -P/L_original[i]
-            
-    ELIF D/R[i] == "DD" (trader saw loss first):
-        IF DD[i] ≥ TP:  # Their loss hits our take profit
-            P/L_inverse[i] = +TP
-        ELIF RP[i] ≥ SL:  # Their profit hits our stop loss
-            P/L_inverse[i] = -SL
-        ELSE:  # Neither bracket hit
-            P/L_inverse[i] = -P/L_original[i]
-    ```
-    
-    ### 3. Key Metrics Calculated
-    
-    **Basic Metrics**:
-    - **Total P/L** = Σ P/L_inverse[i]
-    - **Hit Rate** = Count(P/L_inverse > 0) / Total Trades
-    - **Expectancy** = (Hit Rate × Avg Win) - ((1 - Hit Rate) × Avg Loss)
-    - **Sharpe Ratio** = Mean(Returns) / StdDev(Returns) × √252
-    - **Profit Factor** = Gross Profits / Gross Losses
-    
-    **Risk Metrics**:
-    - **Maximum Drawdown** = Largest peak-to-trough decline in equity curve
-    - **MAR Ratio** = Total P/L / Max Drawdown
-    
-    ### 4. Why This Works
-    
-    If traders consistently lose money (negative edge), then:
-    - Taking opposite positions should yield positive expectancy
-    - Fixed brackets (TP/SL) can optimize this edge by:
-      - Limiting losses when traders occasionally win big
-      - Capturing consistent profits from their frequent losses
-    
-    ### 5. Example Scenario
-    
-    **Original Trade**: Trader loses 15 points
-    - Run-up: 5 points (RP)
-    - Drawdown: 20 points (DD)
-    - D/R Flag: "RP" (saw 5 point profit before 20 point loss)
-    
-    **Our Inverse Trade** with TP=10, SL=10:
-    - Trader's 5 point run-up = Our 5 point drawdown (< 10 SL, continues)
-    - Trader's 20 point drawdown = Our 20 point run-up (> 10 TP, locked in)
-    - **Result**: We make +10 points (TP hit)
-    
-    While simple inversion would gain +15, the bracket system:
-    - Protects against occasional large trader wins
-    - Provides consistent, controlled profits
-    """)
+    st.markdown(get_text("math_framework_content", lang))
 
 st.markdown("---")
 
@@ -536,25 +443,7 @@ if uploaded_files:
                 
                 # Explain the simulation
                 with st.expander(get_text("how_inverse_works_title", lang)):
-                    st.markdown(get_text("how_inverse_works", lang))"""
-                    **Inverse Trading Strategy**: We bet AGAINST each trader's position.
-                    
-                    **Key Concepts**:
-                    - When a trader goes LONG, we go SHORT (and vice versa)
-                    - The trader's **run-up** (favorable movement) becomes our **adverse movement**
-                    - The trader's **drawdown** (unfavorable movement) becomes our **favorable movement**
-                    
-                    **Simulation Logic**:
-                    1. For each trade, we take the opposite position
-                    2. We apply fixed Take Profit (TP) and Stop Loss (SL) brackets
-                    3. Based on the D/R flag, we know which movement happened first:
-                       - **RP (Run-up first)**: Trader saw profit first → We face loss first
-                       - **DD (Drawdown first)**: Trader saw loss first → We see profit first
-                    4. We check if our TP or SL gets hit based on these movements
-                    
-                    **Example**: If a trader lost 20 points, our inverse position would gain 20 points 
-                    (unless limited by our TP bracket).
-                    """)
+                    st.markdown(get_text("how_inverse_works", lang))
                 
                 # Create tabs for basic and advanced analysis
                 if advanced_stats:
