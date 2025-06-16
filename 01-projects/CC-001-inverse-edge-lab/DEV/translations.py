@@ -63,7 +63,7 @@ translations = {
         "math_framework_content": """## How Inverse Trading Simulation Works
 
 ### 1. Core Concept
-We simulate taking the **opposite position** of each trader with fixed risk-reward brackets.
+We simulate taking the **opposite position** of each trader with fixed risk-reward brackets, accounting for real trading costs.
 
 **Key Insight**: When you bet against a trader:
 - Their **favorable movement** (run-up) → Your **adverse movement** (potential loss)
@@ -72,68 +72,93 @@ We simulate taking the **opposite position** of each trader with fixed risk-rewa
 ### 2. Mathematical Formulation
 
 For each trade `i` in the dataset:
-- `P/L_original[i]` = Original trader's profit/loss
+- `P/L_original[i]` = Original trader's profit/loss (in points)
 - `RP[i]` = Run-up (maximum favorable excursion for trader)
 - `DD[i]` = Drawdown (maximum adverse excursion for trader)
 - `D/R[i]` = Flag indicating which came first (RP or DD)
 
-**Inverse Position Calculation**:
+**Step 1: Inverse Position Calculation (Gross P/L)**
 ```
 For our inverse position with brackets (TP, SL):
 
 IF D/R[i] == "RP" (trader saw profit first):
     IF RP[i] ≥ SL:  # Their profit hits our stop loss
-        P/L_inverse[i] = -SL
+        Gross_P/L[i] = -SL points
     ELIF DD[i] ≥ TP:  # Their loss hits our take profit
-        P/L_inverse[i] = +TP
+        Gross_P/L[i] = +TP points
     ELSE:  # Neither bracket hit
-        P/L_inverse[i] = -P/L_original[i]
+        Gross_P/L[i] = -P/L_original[i] points
         
 ELIF D/R[i] == "DD" (trader saw loss first):
     IF DD[i] ≥ TP:  # Their loss hits our take profit
-        P/L_inverse[i] = +TP
+        Gross_P/L[i] = +TP points
     ELIF RP[i] ≥ SL:  # Their profit hits our stop loss
-        P/L_inverse[i] = -SL
+        Gross_P/L[i] = -SL points
     ELSE:  # Neither bracket hit
-        P/L_inverse[i] = -P/L_original[i]
+        Gross_P/L[i] = -P/L_original[i] points
 ```
 
-### 3. Key Metrics Calculated
+**Step 2: Commission Calculation**
+```
+Commission_per_trade[i] = Commission_per_side × 2 × Contracts
+                        = (Entry commission + Exit commission) × Contracts
+
+Net_P/L[i] = Gross_P/L[i] - Commission_per_trade[i]
+```
+
+### 3. Complete Example with Commissions
+
+**Setup**:
+- Contract: 1 MNQ (Micro E-mini Nasdaq)
+- Point value: $2 per point
+- Commission: $2.25 per side ($4.50 round trip)
+- Bracket: TP=20 points, SL=10 points
+
+**Trade Example**:
+1. Original trader loses 15 points
+2. Our inverse position gains +15 points gross
+3. But TP=20 not hit, so gross P/L = +15 points
+4. Dollar gross P/L = 15 points × $2 = $30
+5. Commission = $4.50 (round trip)
+6. **Net P/L = $30 - $4.50 = $25.50 (12.75 points net)**
+
+### 4. Impact on Key Metrics
+
+All performance metrics use **Net P/L** after commissions:
 
 **Basic Metrics**:
-- **Total P/L** = Σ P/L_inverse[i]
-- **Hit Rate** = Count(P/L_inverse > 0) / Total Trades
-- **Expectancy** = (Hit Rate × Avg Win) - ((1 - Hit Rate) × Avg Loss)
-- **Sharpe Ratio** = Mean(Returns) / StdDev(Returns) × √252
-- **Profit Factor** = Gross Profits / Gross Losses
+- **Total Net P/L** = Σ (Gross_P/L[i] - Commission[i])
+- **Hit Rate** = Count(Net_P/L > 0) / Total Trades
+- **Avg Win/Loss** = Based on net values after commission
+- **Expectancy** = (Hit Rate × Avg Net Win) - ((1 - Hit Rate) × Avg Net Loss)
+- **Sharpe Ratio** = Mean(Net Returns) / StdDev(Net Returns) × √252
+- **Profit Factor** = Gross Net Profits / Gross Net Losses
 
-**Risk Metrics**:
-- **Maximum Drawdown** = Largest peak-to-trough decline in equity curve
-- **MAR Ratio** = Total P/L / Max Drawdown
+**Commission Impact Analysis**:
+- **Total Commission** = Commission_per_trade × Number of trades
+- **Commission Impact %** = (Total Commission / |Gross P/L|) × 100
+- **Break-even threshold** = Commission_per_trade in points
 
-### 4. Why This Works
+### 5. Why Commission Matters
 
-If traders consistently lose money (negative edge), then:
-- Taking opposite positions should yield positive expectancy
-- Fixed brackets (TP/SL) can optimize this edge by:
-  - Limiting losses when traders occasionally win big
-  - Capturing consistent profits from their frequent losses
+**Critical for Small Edges**:
+- A 5-point average win becomes 2.75 points after $4.50 commission
+- High-frequency strategies are more impacted by commissions
+- Win rate requirements increase to overcome commission drag
 
-### 5. Example Scenario
+**Example Impact**:
+- Without commission: 60% win rate, avg win/loss = 1:1 → Positive expectancy
+- With $4.50 commission: Same setup might have negative expectancy
+- Need higher win rate or better risk/reward to overcome costs
 
-**Original Trade**: Trader loses 15 points
-- Run-up: 5 points (RP)
-- Drawdown: 20 points (DD)
-- D/R Flag: "RP" (saw 5 point profit before 20 point loss)
+### 6. Optimization Considerations
 
-**Our Inverse Trade** with TP=10, SL=10:
-- Trader's 5 point run-up = Our 5 point drawdown (< 10 SL, continues)
-- Trader's 20 point drawdown = Our 20 point run-up (> 10 TP, locked in)
-- **Result**: We make +10 points (TP hit)
+The simulation finds the optimal TP/SL brackets considering:
+1. **Gross edge** from inverse positions
+2. **Commission drag** on every trade
+3. **Net profitability** after all costs
 
-While simple inversion would gain +15, the bracket system:
-- Protects against occasional large trader wins
-- Provides consistent, controlled profits""",
+This ensures your backtesting reflects real trading conditions and helps identify truly profitable configurations.""",
         
         # Simulation
         "running_simulations": "Running simulations...",
@@ -215,6 +240,7 @@ This provides a robust estimate of uncertainty without assuming normal distribut
         "advanced_stats_title": "Statistical Significance Tests",
         "charts_title": "Performance Charts",
         "top_configs_title": "Top 5 Configurations by Total P/L",
+        "heatmap_title": "P/L Heatmap by TP/SL Configuration",
         
         # AI Assistant
         "ai_assistant": "🤖 AI Assistant",
@@ -223,9 +249,31 @@ This provides a robust estimate of uncertainty without assuming normal distribut
         "run_simulation_first": "Please run a simulation first so I can analyze your results!",
         "api_key_missing": "⚠️ AI Assistant API key not configured",
         
+        # Commission settings
+        "commission_settings": "💰 Commission Settings",
+        "contract_size": "Contract Size",
+        "contract_size_help": "Number of contracts per trade (e.g., 1 for MNQ)",
+        "commission_per_side": "Commission per Side ($)",
+        "commission_help": "Commission charged per contract per side (entry or exit)",
+        "total_commission_info": "Total commission per round trip: ${total:.2f}",
+        
+        # Commission impact
+        "commission_impact_title": "📊 Commission Impact Analysis",
+        "gross_pl_metric": "Gross P/L",
+        "total_commission_metric": "Total Commissions",
+        "net_pl_metric": "Net P/L",
+        "commission_impact_pct": "Commission Impact",
+        "commission_impact_info": "Trading {contracts} contract(s) with ${commission_per_rt:.2f} commission per round trip across {total_trades} trades",
+        
+        # Point value
+        "point_value": "Point Value ($)",
+        "point_value_help": "Dollar value per point (e.g., $2 for MNQ, $5 for MES, $50 for ES)",
+        
         # Column names
         "col_tp": "TP",
         "col_sl": "SL",
+        "col_gross_pl": "Gross P/L",
+        "col_commission": "Commission",
         "col_total_pl": "Total P/L",
         "col_avg_pl": "Avg P/L",
         "col_hit_rate": "Hit Rate",
@@ -302,7 +350,7 @@ This provides a robust estimate of uncertainty without assuming normal distribut
         "math_framework_content": """## Come Funziona la Simulazione di Trading Inverso
 
 ### 1. Concetto Base
-Simuliamo l'apertura della **posizione opposta** di ogni trader con bracket rischio-rendimento fissi.
+Simuliamo l'apertura della **posizione opposta** di ogni trader con bracket rischio-rendimento fissi, tenendo conto dei costi di trading reali.
 
 **Intuizione Chiave**: Quando scommetti contro un trader:
 - Il suo **movimento favorevole** (run-up) → Il tuo **movimento avverso** (potenziale perdita)
@@ -311,68 +359,93 @@ Simuliamo l'apertura della **posizione opposta** di ogni trader con bracket risc
 ### 2. Formulazione Matematica
 
 Per ogni operazione `i` nel dataset:
-- `P/L_originale[i]` = Profitto/perdita del trader originale
+- `P/L_originale[i]` = Profitto/perdita del trader originale (in punti)
 - `RP[i]` = Run-up (massima escursione favorevole per il trader)
 - `DD[i]` = Drawdown (massima escursione avversa per il trader)
 - `D/R[i]` = Flag che indica cosa è venuto prima (RP o DD)
 
-**Calcolo Posizione Inversa**:
+**Passo 1: Calcolo Posizione Inversa (P/L Lordo)**
 ```
 Per la nostra posizione inversa con bracket (TP, SL):
 
 SE D/R[i] == "RP" (il trader ha visto prima il profitto):
     SE RP[i] ≥ SL:  # Il suo profitto colpisce il nostro stop loss
-        P/L_inverso[i] = -SL
+        P/L_Lordo[i] = -SL punti
     ALTRIMENTI SE DD[i] ≥ TP:  # La sua perdita colpisce il nostro take profit
-        P/L_inverso[i] = +TP
+        P/L_Lordo[i] = +TP punti
     ALTRIMENTI:  # Nessun bracket colpito
-        P/L_inverso[i] = -P/L_originale[i]
+        P/L_Lordo[i] = -P/L_originale[i] punti
         
 ALTRIMENTI SE D/R[i] == "DD" (il trader ha visto prima la perdita):
     SE DD[i] ≥ TP:  # La sua perdita colpisce il nostro take profit
-        P/L_inverso[i] = +TP
+        P/L_Lordo[i] = +TP punti
     ALTRIMENTI SE RP[i] ≥ SL:  # Il suo profitto colpisce il nostro stop loss
-        P/L_inverso[i] = -SL
+        P/L_Lordo[i] = -SL punti
     ALTRIMENTI:  # Nessun bracket colpito
-        P/L_inverso[i] = -P/L_originale[i]
+        P/L_Lordo[i] = -P/L_originale[i] punti
 ```
 
-### 3. Metriche Chiave Calcolate
+**Passo 2: Calcolo Commissioni**
+```
+Commissione_per_operazione[i] = Commissione_per_lato × 2 × Contratti
+                               = (Commissione entrata + Commissione uscita) × Contratti
+
+P/L_Netto[i] = P/L_Lordo[i] - Commissione_per_operazione[i]
+```
+
+### 3. Esempio Completo con Commissioni
+
+**Configurazione**:
+- Contratto: 1 MNQ (Micro E-mini Nasdaq)
+- Valore per punto: $2 per punto
+- Commissione: $2.25 per lato ($4.50 andata e ritorno)
+- Bracket: TP=20 punti, SL=10 punti
+
+**Esempio di Operazione**:
+1. Il trader originale perde 15 punti
+2. La nostra posizione inversa guadagna +15 punti lordi
+3. Ma TP=20 non colpito, quindi P/L lordo = +15 punti
+4. P/L lordo in dollari = 15 punti × $2 = $30
+5. Commissione = $4.50 (andata e ritorno)
+6. **P/L Netto = $30 - $4.50 = $25.50 (12.75 punti netti)**
+
+### 4. Impatto sulle Metriche Chiave
+
+Tutte le metriche di performance usano **P/L Netto** dopo le commissioni:
 
 **Metriche Base**:
-- **P/L Totale** = Σ P/L_inverso[i]
-- **Hit Rate** = Conteggio(P/L_inverso > 0) / Operazioni Totali
-- **Expectancy** = (Hit Rate × Media Vincite) - ((1 - Hit Rate) × Media Perdite)
-- **Sharpe Ratio** = Media(Rendimenti) / DevStd(Rendimenti) × √252
-- **Profit Factor** = Profitti Lordi / Perdite Lorde
+- **P/L Netto Totale** = Σ (P/L_Lordo[i] - Commissione[i])
+- **Hit Rate** = Conteggio(P/L_Netto > 0) / Operazioni Totali
+- **Media Vincite/Perdite** = Basata su valori netti dopo commissioni
+- **Expectancy** = (Hit Rate × Media Vincite Nette) - ((1 - Hit Rate) × Media Perdite Nette)
+- **Sharpe Ratio** = Media(Rendimenti Netti) / DevStd(Rendimenti Netti) × √252
+- **Profit Factor** = Profitti Netti Lordi / Perdite Nette Lorde
 
-**Metriche di Rischio**:
-- **Drawdown Massimo** = Maggior declino da picco a valle nella curva equity
-- **MAR Ratio** = P/L Totale / Drawdown Massimo
+**Analisi Impatto Commissioni**:
+- **Commissione Totale** = Commissione_per_operazione × Numero di operazioni
+- **Impatto Commissioni %** = (Commissione Totale / |P/L Lordo|) × 100
+- **Soglia di pareggio** = Commissione_per_operazione in punti
 
-### 4. Perché Funziona
+### 5. Perché le Commissioni Contano
 
-Se i trader perdono costantemente denaro (edge negativo), allora:
-- Prendere posizioni opposte dovrebbe produrre expectancy positiva
-- I bracket fissi (TP/SL) possono ottimizzare questo edge:
-  - Limitando le perdite quando i trader occasionalmente vincono molto
-  - Catturando profitti consistenti dalle loro frequenti perdite
+**Critiche per Edge Piccoli**:
+- Una vincita media di 5 punti diventa 2.75 punti dopo $4.50 di commissione
+- Le strategie ad alta frequenza sono più impattate dalle commissioni
+- I requisiti di win rate aumentano per superare il peso delle commissioni
 
-### 5. Scenario di Esempio
+**Esempio di Impatto**:
+- Senza commissioni: 60% win rate, rapporto win/loss = 1:1 → Expectancy positiva
+- Con $4.50 commissione: Stessa configurazione potrebbe avere expectancy negativa
+- Serve win rate più alto o miglior risk/reward per superare i costi
 
-**Operazione Originale**: Il trader perde 15 punti
-- Run-up: 5 punti (RP)
-- Drawdown: 20 punti (DD)
-- Flag D/R: "RP" (ha visto 5 punti di profitto prima di 20 punti di perdita)
+### 6. Considerazioni per l'Ottimizzazione
 
-**La Nostra Operazione Inversa** con TP=10, SL=10:
-- Run-up del trader di 5 punti = Nostro drawdown di 5 punti (< 10 SL, continua)
-- Drawdown del trader di 20 punti = Nostro run-up di 20 punti (> 10 TP, bloccato)
-- **Risultato**: Guadagniamo +10 punti (TP colpito)
+La simulazione trova i bracket TP/SL ottimali considerando:
+1. **Edge lordo** dalle posizioni inverse
+2. **Peso delle commissioni** su ogni operazione
+3. **Profittabilità netta** dopo tutti i costi
 
-Mentre l'inversione semplice guadagnerebbe +15, il sistema a bracket:
-- Protegge contro occasionali grandi vincite del trader
-- Fornisce profitti consistenti e controllati""",
+Questo assicura che il tuo backtesting rifletta le condizioni di trading reali e aiuta a identificare configurazioni veramente profittevoli.""",
         
         # Simulation
         "running_simulations": "Esecuzione simulazioni...",
@@ -454,6 +527,7 @@ Questo fornisce una stima robusta dell'incertezza senza assumere distribuzione n
         "advanced_stats_title": "Test di Significatività Statistica",
         "charts_title": "Grafici delle Prestazioni",
         "top_configs_title": "Top 5 Configurazioni per P/L Totale",
+        "heatmap_title": "Heatmap P/L per Configurazione TP/SL",
         
         # AI Assistant
         "ai_assistant": "🤖 Assistente AI",
@@ -462,9 +536,31 @@ Questo fornisce una stima robusta dell'incertezza senza assumere distribuzione n
         "run_simulation_first": "Per favore esegui prima una simulazione così posso analizzare i tuoi risultati!",
         "api_key_missing": "⚠️ Chiave API Assistente AI non configurata",
         
+        # Commission settings
+        "commission_settings": "💰 Impostazioni Commissioni",
+        "contract_size": "Dimensione Contratto",
+        "contract_size_help": "Numero di contratti per operazione (es. 1 per MNQ)",
+        "commission_per_side": "Commissione per Lato ($)",
+        "commission_help": "Commissione addebitata per contratto per lato (entrata o uscita)",
+        "total_commission_info": "Commissione totale andata e ritorno: ${total:.2f}",
+        
+        # Commission impact
+        "commission_impact_title": "📊 Analisi Impatto Commissioni",
+        "gross_pl_metric": "P/L Lordo",
+        "total_commission_metric": "Commissioni Totali",
+        "net_pl_metric": "P/L Netto",
+        "commission_impact_pct": "Impatto Commissioni",
+        "commission_impact_info": "Trading di {contracts} contratto/i con ${commission_per_rt:.2f} di commissione andata e ritorno su {total_trades} operazioni",
+        
+        # Point value
+        "point_value": "Valore per Punto ($)",
+        "point_value_help": "Valore in dollari per punto (es. $2 per MNQ, $5 per MES, $50 per ES)",
+        
         # Column names
         "col_tp": "TP",
         "col_sl": "SL",
+        "col_gross_pl": "P/L Lordo",
+        "col_commission": "Commissione",
         "col_total_pl": "P/L Totale",
         "col_avg_pl": "P/L Medio",
         "col_hit_rate": "Hit Rate",

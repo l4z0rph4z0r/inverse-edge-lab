@@ -139,6 +139,46 @@ with st.sidebar:
         with st.expander(get_text("advanced_tests_title", lang)):
             st.markdown(get_text("advanced_tests_desc", lang))
     
+    # Commission settings
+    st.markdown("---")
+    st.subheader(get_text("commission_settings", lang))
+    
+    # Contract settings
+    col1, col2 = st.columns(2)
+    with col1:
+        contract_size = st.number_input(
+            get_text("contract_size", lang),
+            min_value=1,
+            value=1,
+            step=1,
+            help=get_text("contract_size_help", lang)
+        )
+    
+    with col2:
+        commission_per_side = st.number_input(
+            get_text("commission_per_side", lang),
+            min_value=0.0,
+            value=2.25,  # Common MNQ commission
+            step=0.25,
+            format="%.2f",
+            help=get_text("commission_help", lang)
+        )
+    
+    # Total commission per round trip
+    total_commission = commission_per_side * 2  # Entry + Exit
+    st.info(get_text("total_commission_info", lang, total=total_commission))
+    
+    # Point value setting
+    st.markdown("---")
+    point_value = st.number_input(
+        get_text("point_value", lang),
+        min_value=0.01,
+        value=2.0,  # Default for MNQ
+        step=0.01,
+        format="%.2f",
+        help=get_text("point_value_help", lang)
+    )
+    
     # Run button
     run_sim = st.button(get_text("run_simulation", lang), type="primary", use_container_width=True)
 
@@ -353,15 +393,17 @@ def generate_pdf_report(results_df, best_row, df, lang='en'):
     config_data = [
         [get_text("col_tp", lang), f"{best_row['TP']:.1f}"],
         [get_text("col_sl", lang), f"{best_row['SL']:.1f}"],
+        [get_text("col_gross_pl", lang), f"{best_row['Gross P/L']:.2f}"],
+        [get_text("col_commission", lang), f"-${best_row['Commission']:.2f}"],
         [get_text("col_total_pl", lang), f"{best_row['Total P/L']:.2f}"],
         [get_text("col_avg_pl", lang), f"{best_row['Avg P/L']:.2f}"],
         [get_text("col_hit_rate", lang), f"{best_row['Hit Rate']:.1%}"],
-        [get_text("col_payoff", lang), f"{best_row['Payoff Ratio']:.2f}"],
+        [get_text("col_payoff_ratio", lang), f"{best_row['Payoff Ratio']:.2f}"],
         [get_text("col_expectancy", lang), f"{best_row['Expectancy']:.2f}"],
         [get_text("col_sharpe", lang), f"{best_row['Sharpe Ratio']:.2f}"],
         [get_text("col_max_dd", lang), f"{best_row['Max DD']:.2f}"],
         [get_text("col_mar", lang), f"{best_row['MAR']:.2f}"],
-        [get_text("col_pf", lang), f"{best_row['Profit Factor']:.2f}"]
+        [get_text("col_profit_factor", lang), f"{best_row['Profit Factor']:.2f}"]
     ]
     
     # Add advanced stats if available
@@ -448,7 +490,7 @@ def generate_pdf_report(results_df, best_row, df, lang='en'):
     
     # 2. Equity Curve for Best Configuration
     fig, ax = plt.subplots(figsize=(8, 6))
-    equity = best_row['sim_data']['sim_pl'].cumsum()
+    equity = best_row['sim_data']['net_pl_points'].cumsum()
     ax.plot(equity, color='green', linewidth=2)
     ax.fill_between(range(len(equity)), 0, equity, alpha=0.3, color='green')
     ax.set_xlabel(get_text("trade_number", lang))
@@ -494,7 +536,7 @@ if uploaded_files:
         if run_sim and st.session_state.brackets:
             with st.spinner(get_text("running_simulations", lang)):
                 
-                def simulate_inversions(data, brackets):
+                def simulate_inversions(data, brackets, commission_per_rt=0.0, contracts=1, point_value=2.0):
                     results = []
                     
                     for tp, sl in brackets:
@@ -536,42 +578,63 @@ if uploaded_files:
                         
                         sim_df['sim_pl'] = outcomes
                         
-                        # Calculate metrics
-                        total_pl = sim_df['sim_pl'].sum()
-                        avg_pl = sim_df['sim_pl'].mean()
-                        wins = (sim_df['sim_pl'] > 0).sum()
-                        losses = (sim_df['sim_pl'] < 0).sum()
+                        # Apply commissions
+                        # Use the point_value parameter passed to the function
+                        commission_in_points = commission_per_rt / point_value  # Convert dollars to points
+                        
+                        sim_df['gross_pl_points'] = sim_df['sim_pl'].copy()  # Gross P/L in points
+                        sim_df['gross_pl_dollars'] = sim_df['gross_pl_points'] * point_value  # Gross P/L in dollars
+                        sim_df['commission_dollars'] = commission_per_rt  # Commission in dollars
+                        sim_df['commission_points'] = commission_in_points  # Commission in points
+                        sim_df['net_pl_points'] = sim_df['gross_pl_points'] - commission_in_points  # Net P/L in points
+                        sim_df['net_pl_dollars'] = sim_df['net_pl_points'] * point_value  # Net P/L in dollars
+                        
+                        # Calculate metrics using net P/L in points (for consistency with original data)
+                        total_pl_points = sim_df['net_pl_points'].sum()
+                        total_pl_dollars = sim_df['net_pl_dollars'].sum()
+                        avg_pl_points = sim_df['net_pl_points'].mean()
+                        wins = (sim_df['net_pl_points'] > 0).sum()
+                        losses = (sim_df['net_pl_points'] < 0).sum()
                         hit_rate = wins / len(sim_df) if len(sim_df) > 0 else 0
                         
-                        avg_win = sim_df[sim_df['sim_pl'] > 0]['sim_pl'].mean() if wins > 0 else 0
-                        avg_loss = abs(sim_df[sim_df['sim_pl'] < 0]['sim_pl'].mean()) if losses > 0 else 1
+                        avg_win = sim_df[sim_df['net_pl_points'] > 0]['net_pl_points'].mean() if wins > 0 else 0
+                        avg_loss = abs(sim_df[sim_df['net_pl_points'] < 0]['net_pl_points'].mean()) if losses > 0 else 1
                         payoff_ratio = avg_win / avg_loss if avg_loss > 0 else 0
                         
                         expectancy = (hit_rate * avg_win) - ((1 - hit_rate) * avg_loss)
                         
-                        # Sharpe ratio
-                        returns = sim_df['sim_pl']
+                        # Sharpe ratio (using net returns in points)
+                        returns = sim_df['net_pl_points']
                         sharpe = returns.mean() / returns.std() * np.sqrt(252) if returns.std() > 0 else 0
                         
-                        # Max drawdown
+                        # Max drawdown (using net P/L in points)
                         cumsum = returns.cumsum()
                         running_max = cumsum.expanding().max()
                         drawdown_series = cumsum - running_max
                         max_dd = abs(drawdown_series.min())
                         
                         # MAR ratio
-                        mar = total_pl / max_dd if max_dd > 0 else 0
+                        mar = total_pl_points / max_dd if max_dd > 0 else 0
                         
-                        # Profit factor
-                        gross_profit = sim_df[sim_df['sim_pl'] > 0]['sim_pl'].sum()
-                        gross_loss = abs(sim_df[sim_df['sim_pl'] < 0]['sim_pl'].sum())
+                        # Profit factor (using net P/L in points)
+                        gross_profit = sim_df[sim_df['net_pl_points'] > 0]['net_pl_points'].sum()
+                        gross_loss = abs(sim_df[sim_df['net_pl_points'] < 0]['net_pl_points'].sum())
                         profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
+                        
+                        # Commission impact
+                        total_commission_dollars = commission_per_rt * len(sim_df) * contracts
+                        gross_total_pl_points = sim_df['gross_pl_points'].sum()
+                        gross_total_pl_dollars = sim_df['gross_pl_dollars'].sum()
                         
                         result = {
                             'TP': tp,
                             'SL': sl,
-                            'Total P/L': total_pl,
-                            'Avg P/L': avg_pl,
+                            'Gross P/L': gross_total_pl_points,  # In points
+                            'Gross P/L $': gross_total_pl_dollars,  # In dollars
+                            'Commission': total_commission_dollars,  # In dollars
+                            'Total P/L': total_pl_points,  # Net P/L in points
+                            'Total P/L $': total_pl_dollars,  # Net P/L in dollars
+                            'Avg P/L': avg_pl_points,
                             'Hit Rate': hit_rate,
                             'Payoff Ratio': payoff_ratio,
                             'Expectancy': expectancy,
@@ -609,7 +672,13 @@ if uploaded_files:
                     return pd.DataFrame(results)
                 
                 # Run simulation
-                results_df = simulate_inversions(df, st.session_state.brackets)
+                results_df = simulate_inversions(
+                    df, 
+                    st.session_state.brackets,
+                    commission_per_rt=total_commission,
+                    contracts=contract_size,
+                    point_value=point_value
+                )
                 
                 # Find best bracket
                 metric_map = {
@@ -647,13 +716,20 @@ if uploaded_files:
                 with tab1:
                     st.markdown(get_text("basic_metrics_title", lang))
                     
-                    # Basic columns
-                    basic_cols = ['TP', 'SL', 'Total P/L', 'Avg P/L', 'Hit Rate', 'Payoff Ratio', 
-                                 'Expectancy', 'Sharpe Ratio', 'Max DD', 'MAR', 'Profit Factor']
+                    # Basic columns - show both points and dollars
+                    basic_cols = ['TP', 'SL', 'Gross P/L', 'Gross P/L $', 'Commission', 'Total P/L', 'Total P/L $', 
+                                 'Avg P/L', 'Hit Rate', 'Payoff Ratio', 'Expectancy', 'Sharpe Ratio', 'Max DD', 'MAR', 'Profit Factor']
+                    
+                    # Check if all columns exist
+                    available_cols = [col for col in basic_cols if col in results_df.columns]
                     
                     st.dataframe(
-                        results_df[basic_cols].style.apply(highlight_best, axis=1).format({
+                        results_df[available_cols].style.apply(highlight_best, axis=1).format({
+                            'Gross P/L': '{:.2f}',
+                            'Gross P/L $': '${:,.2f}',
+                            'Commission': '${:,.2f}',
                             'Total P/L': '{:.2f}',
+                            'Total P/L $': '${:,.2f}',
                             'Avg P/L': '{:.2f}',
                             'Hit Rate': '{:.2%}',
                             'Payoff Ratio': '{:.2f}',
@@ -777,6 +853,27 @@ if uploaded_files:
                              delta=f"{inverse_optimized - original_total:.2f}", 
                              delta_color="normal")
                 
+                # Commission Impact Summary
+                if total_commission > 0:
+                    st.markdown("---")
+                    st.subheader(get_text("commission_impact_title", lang))
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric(get_text("gross_pl_metric", lang), f"{best_row['Gross P/L']:.2f}")
+                    with col2:
+                        st.metric(get_text("total_commission_metric", lang), f"-${best_row['Commission']:.2f}")
+                    with col3:
+                        st.metric(get_text("net_pl_metric", lang), f"{best_row['Total P/L']:.2f}")
+                    with col4:
+                        commission_impact_pct = (best_row['Commission'] / abs(best_row['Gross P/L']) * 100) if best_row['Gross P/L'] != 0 else 0
+                        st.metric(get_text("commission_impact_pct", lang), f"{commission_impact_pct:.1f}%")
+                    
+                    st.info(get_text("commission_impact_info", lang, 
+                                   contracts=int(contract_size),
+                                   commission_per_rt=total_commission,
+                                   total_trades=len(best_row['sim_data'])))
+                
                 st.markdown("---")
                 
                 # Visualizations (shown below tabs)
@@ -786,11 +883,11 @@ if uploaded_files:
                 with col1:
                     # Histogram
                     fig, ax = plt.subplots(figsize=(8, 6))
-                    best_data = best_row['sim_data']['sim_pl']
+                    best_data = best_row['sim_data']['net_pl_points']
                     ax.hist(best_data, bins=30, alpha=0.7, color='blue', edgecolor='black')
                     ax.axvline(best_data.mean(), color='red', linestyle='--', 
                               label=get_text("mean_label", lang, value=best_data.mean()))
-                    ax.set_xlabel('P/L (points)')
+                    ax.set_xlabel('Net P/L (points)')
                     ax.set_ylabel(get_text("frequency", lang))
                     ax.set_title(get_text("pl_distribution", lang, tp=best_row["TP"], sl=best_row["SL"]))
                     ax.legend()
@@ -800,7 +897,7 @@ if uploaded_files:
                 with col2:
                     # Equity curve
                     fig, ax = plt.subplots(figsize=(8, 6))
-                    equity = best_row['sim_data']['sim_pl'].cumsum()
+                    equity = best_row['sim_data']['net_pl_points'].cumsum()
                     ax.plot(equity, color='green', linewidth=2)
                     ax.fill_between(range(len(equity)), 0, equity, alpha=0.3, color='green')
                     ax.set_xlabel(get_text("trade_number", lang))
