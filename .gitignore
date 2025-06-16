@@ -1,4 +1,4 @@
-# Environment and Dependencies
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -8,81 +8,32 @@ env/
 venv/
 ENV/
 .venv
-node_modules/
 
-# IDE and Editors
+# Streamlit
+.streamlit/
+
+# Docker
+uploads/
+
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
-.*.sw[op]
 
-# OS Files
+# OS
 .DS_Store
 Thumbs.db
-desktop.ini
 
-# Secrets and Keys
+# Secrets and keys
 *.pem
 *.key
 .env
-.env.*
-!.env.example
 
-# Claude Code System
-.claude/
-claude-code/
-
-# Personal/Temporary Files
-*.txt
-!requirements.txt
-!**/requirements.txt
-*.log
-*.tmp
-*.temp
-
-# Project-specific files in root
-app.py
-translations.py
-Dockerfile
-docker-compose.yml
+# Data files
 *.xlsx
 *.csv
-uploads/
+!SL5TP30*.xlsx  # Keep sample data files
 
-# Build artifacts
-dist/
-build/
-*.egg-info/
-
-# Testing
-.coverage
-.pytest_cache/
-htmlcov/
-
-# Documentation builds
-docs/_build/
-site/
-
-# Backup files
-*.bak
-*.backup
-*.old
-
-# Archives (except the archives directory itself)
-*.zip
-*.tar.gz
-*.rar
-
-# Keep the directory structure
-!01-projects/.gitkeep
-!02-libraries/.gitkeep
-!03-native-tools/.gitkeep
-!04-infrastructure/.gitkeep
-!05-documentation/.gitkeep
-!06-data/.gitkeep
-!07-testing/.gitkeep
-!08-operations/.gitkeep
-!archives/.gitkeep
-!instance-docs/
+# Logs
+*.log
