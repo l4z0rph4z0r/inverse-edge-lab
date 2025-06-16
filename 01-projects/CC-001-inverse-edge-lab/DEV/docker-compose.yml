@@ -6,9 +6,10 @@ services:
     environment:
       - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL:-redis://redis:6379}
       - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN:-}
+      - PERPLEXITY_API_KEY=${PERPLEXITY_API_KEY:-}
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./uploads:/app/uploads
+      - uploads:/app/uploads
     depends_on:
       - redis
     restart: unless-stopped
@@ -23,3 +24,4 @@ services:
 
 volumes:
   redis_data:
+  uploads:

@@ -15,6 +15,14 @@ import statsmodels.api as sm
 from statsmodels.stats.stattools import jarque_bera
 import warnings
 from translations import get_text
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
+from io import BytesIO
+import base64
 
 warnings.filterwarnings('ignore')
 
@@ -294,6 +302,182 @@ def load_data(files):
         dfs.append(df)
     
     return pd.concat(dfs, ignore_index=True) if dfs else None
+
+def generate_pdf_report(results_df, best_row, df, lang='en'):
+    """Generate a PDF report with simulation results"""
+    buffer = BytesIO()
+    
+    # Create the PDF document
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    story = []
+    
+    # Get styles
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#1f4e79'),
+        alignment=TA_CENTER,
+        spaceAfter=30
+    )
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=colors.HexColor('#2e75b6'),
+        spaceAfter=12
+    )
+    
+    # Helper function to create chart images
+    def create_chart_image(fig, width=6*inch, height=4*inch):
+        """Convert matplotlib figure to reportlab Image"""
+        img_buffer = BytesIO()
+        fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=150)
+        img_buffer.seek(0)
+        img = Image(img_buffer, width=width, height=height)
+        plt.close(fig)
+        return img
+    
+    # Title
+    story.append(Paragraph(get_text("page_title", lang), title_style))
+    story.append(Spacer(1, 0.2*inch))
+    
+    # Report generation date
+    story.append(Paragraph(f"{get_text('report_date', lang)}: {datetime.now().strftime('%Y-%m-%d %H:%M')}", styles['Normal']))
+    story.append(Spacer(1, 0.3*inch))
+    
+    # Best Configuration Section
+    story.append(Paragraph(get_text("best_config_title", lang), heading_style))
+    
+    config_data = [
+        [get_text("col_tp", lang), f"{best_row['TP']:.1f}"],
+        [get_text("col_sl", lang), f"{best_row['SL']:.1f}"],
+        [get_text("col_total_pl", lang), f"{best_row['Total P/L']:.2f}"],
+        [get_text("col_avg_pl", lang), f"{best_row['Avg P/L']:.2f}"],
+        [get_text("col_hit_rate", lang), f"{best_row['Hit Rate']:.1%}"],
+        [get_text("col_payoff", lang), f"{best_row['Payoff Ratio']:.2f}"],
+        [get_text("col_expectancy", lang), f"{best_row['Expectancy']:.2f}"],
+        [get_text("col_sharpe", lang), f"{best_row['Sharpe Ratio']:.2f}"],
+        [get_text("col_max_dd", lang), f"{best_row['Max DD']:.2f}"],
+        [get_text("col_mar", lang), f"{best_row['MAR']:.2f}"],
+        [get_text("col_pf", lang), f"{best_row['Profit Factor']:.2f}"]
+    ]
+    
+    # Add advanced stats if available
+    if 'T-stat' in best_row:
+        config_data.extend([
+            ["", ""],  # Empty row for separation
+            [get_text("advanced_stats_title", lang), ""],
+            [get_text("col_tstat", lang), f"{best_row['T-stat']:.4f}"],
+            [get_text("col_pvalue", lang), f"{best_row['P-value']:.4f}"],
+            [get_text("col_ci95", lang), best_row['CI 95%']],
+            [get_text("col_jb_pvalue", lang), f"{best_row['JB p-value']:.4f}"]
+        ])
+    
+    config_table = Table(config_data, colWidths=[3*inch, 2*inch])
+    config_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    story.append(config_table)
+    story.append(Spacer(1, 0.5*inch))
+    
+    # All Results Summary
+    story.append(Paragraph(get_text("all_results_title", lang), heading_style))
+    
+    # Prepare summary table data
+    summary_cols = ['TP', 'SL', 'Total P/L', 'Hit Rate', 'Sharpe Ratio', 'MAR']
+    summary_data = [[get_text(f"col_{col.lower().replace(' ', '_').replace('/', '_')}", lang) for col in summary_cols]]
+    
+    for _, row in results_df.head(10).iterrows():
+        summary_data.append([
+            f"{row['TP']:.1f}",
+            f"{row['SL']:.1f}",
+            f"{row['Total P/L']:.2f}",
+            f"{row['Hit Rate']:.1%}",
+            f"{row['Sharpe Ratio']:.2f}",
+            f"{row['MAR']:.2f}"
+        ])
+    
+    summary_table = Table(summary_data)
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    story.append(summary_table)
+    story.append(PageBreak())
+    
+    # Charts Section
+    story.append(Paragraph(get_text("charts_title", lang), heading_style))
+    story.append(Spacer(1, 0.3*inch))
+    
+    # 1. TP/SL Heatmap
+    fig, ax = plt.subplots(figsize=(8, 6))
+    pivot_data = results_df.pivot_table(
+        index='SL', 
+        columns='TP', 
+        values='Total P/L',
+        aggfunc='mean'
+    )
+    im = ax.imshow(pivot_data.values, cmap='RdYlGn', aspect='auto')
+    ax.set_xticks(range(len(pivot_data.columns)))
+    ax.set_yticks(range(len(pivot_data.index)))
+    ax.set_xticklabels([f'{x:.1f}' for x in pivot_data.columns])
+    ax.set_yticklabels([f'{y:.1f}' for y in pivot_data.index])
+    ax.set_xlabel(get_text("col_tp", lang))
+    ax.set_ylabel(get_text("col_sl", lang))
+    ax.set_title(get_text("heatmap_title", lang))
+    plt.colorbar(im, ax=ax, label=get_text("col_total_pl", lang))
+    story.append(create_chart_image(fig, width=5*inch, height=3.75*inch))
+    story.append(Spacer(1, 0.3*inch))
+    
+    # 2. Equity Curve for Best Configuration
+    fig, ax = plt.subplots(figsize=(8, 6))
+    equity = best_row['sim_data']['sim_pl'].cumsum()
+    ax.plot(equity, color='green', linewidth=2)
+    ax.fill_between(range(len(equity)), 0, equity, alpha=0.3, color='green')
+    ax.set_xlabel(get_text("trade_number", lang))
+    ax.set_ylabel(get_text("cumulative_pl", lang))
+    ax.set_title(get_text("equity_curve", lang, tp=best_row["TP"], sl=best_row["SL"]))
+    ax.grid(True, alpha=0.3)
+    story.append(create_chart_image(fig, width=5*inch, height=3.75*inch))
+    story.append(Spacer(1, 0.3*inch))
+    
+    # 3. Performance Metrics Bar Chart
+    if len(results_df) > 5:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        top_5 = results_df.head(5)
+        x = range(len(top_5))
+        labels = [f"TP:{row['TP']:.1f}/SL:{row['SL']:.1f}" for _, row in top_5.iterrows()]
+        
+        ax.bar(x, top_5['Total P/L'], color='steelblue', alpha=0.8)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=45, ha='right')
+        ax.set_ylabel(get_text("col_total_pl", lang))
+        ax.set_title(get_text("top_configs_title", lang))
+        ax.grid(True, axis='y', alpha=0.3)
+        plt.tight_layout()
+        story.append(create_chart_image(fig, width=5*inch, height=3.75*inch))
+    
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
 
 # Load data
 if uploaded_files:
@@ -632,13 +816,26 @@ if uploaded_files:
                 if advanced_stats:
                     export_cols.extend(['T-stat', 'P-value', 'CI 95%', 'JB p-value'])
                 
-                csv = results_df[export_cols].to_csv(index=False)
-                st.download_button(
-                    label=get_text("download_csv", lang),
-                    data=csv,
-                    file_name="inverse_edge_results.csv",
-                    mime="text/csv"
-                )
+                # Export options in columns
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    csv = results_df[export_cols].to_csv(index=False)
+                    st.download_button(
+                        label=get_text("download_csv", lang),
+                        data=csv,
+                        file_name="inverse_edge_results.csv",
+                        mime="text/csv"
+                    )
+                
+                with col2:
+                    pdf_buffer = generate_pdf_report(results_df, best_row, df, lang)
+                    st.download_button(
+                        label=get_text("download_pdf", lang),
+                        data=pdf_buffer,
+                        file_name="inverse_edge_report.pdf",
+                        mime="application/pdf"
+                    )
                 
                 # Store in state for LLM with current bracket info
                 st.session_state.df = best_row['sim_data']
@@ -651,8 +848,13 @@ st.header(get_text("ai_assistant", lang))
 st.info(get_text("ai_info", lang))
 
 # Perplexity API configuration
-PERPLEXITY_API_KEY = "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"
+PERPLEXITY_API_KEY = os.environ.get("PERPLEXITY_API_KEY", "")
 PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions"
+
+# Check if API key is configured
+if not PERPLEXITY_API_KEY:
+    st.warning(get_text("api_key_missing", lang))
+    st.info("Please set the PERPLEXITY_API_KEY environment variable to enable AI assistance.")
 
 if 'messages' not in st.session_state:
     st.session_state.messages = []

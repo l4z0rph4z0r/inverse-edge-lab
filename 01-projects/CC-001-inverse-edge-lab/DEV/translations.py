@@ -208,12 +208,20 @@ This provides a robust estimate of uncertainty without assuming normal distribut
         
         # Export
         "download_csv": "📥 Download Results CSV",
+        "download_pdf": "📄 Download PDF Report",
+        "report_date": "Report Generated",
+        "best_config_title": "Best Configuration",
+        "all_results_title": "Top 10 Results Summary",
+        "advanced_stats_title": "Statistical Significance Tests",
+        "charts_title": "Performance Charts",
+        "top_configs_title": "Top 5 Configurations by Total P/L",
         
         # AI Assistant
         "ai_assistant": "🤖 AI Assistant",
         "ai_info": "Ask questions about your simulation results - powered by Perplexity AI!",
         "ai_prompt": "What would you like to know about the results?",
         "run_simulation_first": "Please run a simulation first so I can analyze your results!",
+        "api_key_missing": "⚠️ AI Assistant API key not configured",
         
         # Column names
         "col_tp": "TP",
@@ -439,12 +447,20 @@ Questo fornisce una stima robusta dell'incertezza senza assumere distribuzione n
         
         # Export
         "download_csv": "📥 Scarica CSV Risultati",
+        "download_pdf": "📄 Scarica Report PDF",
+        "report_date": "Report Generato",
+        "best_config_title": "Migliore Configurazione",
+        "all_results_title": "Riepilogo Top 10 Risultati",
+        "advanced_stats_title": "Test di Significatività Statistica",
+        "charts_title": "Grafici delle Prestazioni",
+        "top_configs_title": "Top 5 Configurazioni per P/L Totale",
         
         # AI Assistant
         "ai_assistant": "🤖 Assistente AI",
         "ai_info": "Fai domande sui tuoi risultati di simulazione - powered by Perplexity AI!",
         "ai_prompt": "Cosa vorresti sapere sui risultati?",
         "run_simulation_first": "Per favore esegui prima una simulazione così posso analizzare i tuoi risultati!",
+        "api_key_missing": "⚠️ Chiave API Assistente AI non configurata",
         
         # Column names
         "col_tp": "TP",

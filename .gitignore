@@ -1,4 +1,4 @@
-# Python
+# Environment and Dependencies
 __pycache__/
 *.py[cod]
 *$py.class
@@ -8,38 +8,81 @@ env/
 venv/
 ENV/
 .venv
+node_modules/
 
-# Streamlit
-.streamlit/
-
-# Docker
-uploads/
-
-# IDE
+# IDE and Editors
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.*.sw[op]
 
-# OS
+# OS Files
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Secrets and keys
+# Secrets and Keys
 *.pem
 *.key
 .env
+.env.*
+!.env.example
 
-# Claude Code
+# Claude Code System
 .claude/
-
-# Personal files
-"App ID 1394080.txt"
-"Claude Code Set-up.txt"
-"Docker, GitHub, and MCPs.txt"
-"Making Claude Cod Your Lead Dev.txt"
-"Nuovo Documento di testo.txt"
-l4z0r-claude-oauth-app.2025-06-11.private-key.pem
-claude.bat
-claude.sh
 claude-code/
+
+# Personal/Temporary Files
+*.txt
+!requirements.txt
+!**/requirements.txt
+*.log
+*.tmp
+*.temp
+
+# Project-specific files in root
+app.py
+translations.py
+Dockerfile
+docker-compose.yml
+*.xlsx
+*.csv
+uploads/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+
+# Documentation builds
+docs/_build/
+site/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Archives (except the archives directory itself)
+*.zip
+*.tar.gz
+*.rar
+
+# Keep the directory structure
+!01-projects/.gitkeep
+!02-libraries/.gitkeep
+!03-native-tools/.gitkeep
+!04-infrastructure/.gitkeep
+!05-documentation/.gitkeep
+!06-data/.gitkeep
+!07-testing/.gitkeep
+!08-operations/.gitkeep
+!archives/.gitkeep
+!instance-docs/
