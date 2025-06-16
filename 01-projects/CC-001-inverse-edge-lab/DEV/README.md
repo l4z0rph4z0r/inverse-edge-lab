@@ -4,7 +4,8 @@ A Python + Streamlit web application for analyzing trading inversions and measur
 
 ## Features
 
-- **Multi-user authentication** with Redis session management
+- **Token-based authentication** with admin panel for access control
+- **Multi-user support** with Redis session management and user profiles
 - **Trade log analysis** supporting Excel/CSV files with automatic column mapping
 - **Inverse simulation** with customizable bracket pairs (TP/SL)
 - **Statistical analysis** including:
@@ -29,9 +30,7 @@ docker compose up -d
 # http://localhost:8501
 ```
 
-Default credentials:
-- Username: `admin`
-- Password: `admin123`
+The app uses a token-based authentication system. Admin users can generate access tokens for other users.
 
 ### Local Development
 

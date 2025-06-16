@@ -23,6 +23,8 @@ from reportlab.lib.units import inch
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from io import BytesIO
 import base64
+from auth_manager import AuthManager
+from admin_panel import show_admin_panel
 
 warnings.filterwarnings('ignore')
 
@@ -30,10 +32,24 @@ warnings.filterwarnings('ignore')
 REDIS_URL = os.getenv('UPSTASH_REDIS_REST_URL')
 REDIS_TOKEN = os.getenv('UPSTASH_REDIS_REST_TOKEN')
 
-if REDIS_URL and REDIS_TOKEN:
+# For local development with Docker, use local Redis
+if REDIS_URL and REDIS_URL.startswith('redis://'):
+    # Local Redis URL from docker-compose
+    r = redis.Redis.from_url(REDIS_URL)
+elif REDIS_URL and REDIS_TOKEN and REDIS_URL.startswith('https://'):
+    # Upstash Redis - for production
     r = redis.Redis.from_url(f"redis://default:{REDIS_TOKEN}@{REDIS_URL.replace('https://', '')}")
 else:
-    r = None  # Fallback for local dev
+    # Try to connect to local Redis container
+    try:
+        r = redis.Redis(host='redis', port=6379, decode_responses=True)
+    except:
+        r = None
+
+# Initialize AuthManager
+auth_manager = AuthManager(r)
+# Create default admin if doesn't exist
+auth_manager.create_admin_if_not_exists()
 
 # Initialize language in session state
 if 'language' not in st.session_state:
@@ -63,32 +79,74 @@ with col3:
 # Get current language
 lang = st.session_state.language
 
-# Simple authentication for demo
+# Authentication check
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
+    st.session_state.user_role = None
+    st.session_state.username = None
 
 if not st.session_state.authenticated:
     st.title(get_text("login_title", lang))
-    with st.form("login_form"):
-        username = st.text_input(get_text("username", lang))
-        password = st.text_input(get_text("password", lang), type="password")
-        submitted = st.form_submit_button(get_text("login", lang))
-        
-        if submitted:
-            # Simple hardcoded check for demo
-            if username == "admin" and password == "admin123":
-                st.session_state.authenticated = True
-                st.session_state.username = username
-                st.rerun()
-            else:
-                st.error(get_text("invalid_credentials", lang))
+    
+    # Create tabs for login methods
+    tab1, tab2 = st.tabs([get_text("admin_login", lang), get_text("token_login", lang)])
+    
+    with tab1:
+        # Admin Login
+        with st.form("admin_login_form"):
+            admin_username = st.text_input(get_text("username", lang))
+            admin_password = st.text_input(get_text("password", lang), type="password")
+            admin_submitted = st.form_submit_button(get_text("login", lang))
+            
+            if admin_submitted:
+                if auth_manager.verify_admin(admin_username, admin_password):
+                    st.session_state.authenticated = True
+                    st.session_state.username = admin_username
+                    st.session_state.user_role = 'admin'
+                    st.rerun()
+                else:
+                    st.error(get_text("invalid_credentials", lang))
+    
+    with tab2:
+        # Token Login
+        with st.form("token_login_form"):
+            token = st.text_input(get_text("access_token", lang), placeholder="Enter your access token")
+            user_username = st.text_input(get_text("choose_username", lang), placeholder="Choose a username")
+            token_submitted = st.form_submit_button(get_text("login_with_token", lang))
+            
+            if token_submitted:
+                if token and user_username:
+                    token_info = auth_manager.use_token(token, user_username)
+                    if token_info:
+                        st.session_state.authenticated = True
+                        st.session_state.username = user_username
+                        st.session_state.user_role = 'user'
+                        st.success(get_text("login_successful", lang))
+                        st.rerun()
+                    else:
+                        st.error(get_text("invalid_token", lang))
+                else:
+                    st.error(get_text("token_username_required", lang))
+    
     st.stop()
 
 # Sidebar
 with st.sidebar:
     st.header(get_text("simulation_controls", lang))
+    
+    # Show username and role
+    st.write(f"👤 {st.session_state.username} ({st.session_state.user_role})")
+    
+    # Admin Panel button for admins
+    if st.session_state.user_role == 'admin':
+        if st.button("🔧 " + get_text("admin_panel", lang)):
+            st.session_state.show_admin_panel = True
+            st.rerun()
+    
+    # Logout button
     if st.button(get_text("logout", lang)):
         st.session_state.authenticated = False
+        st.session_state.show_admin_panel = False
         st.rerun()
     
     # Bracket pairs
@@ -181,23 +239,6 @@ with st.sidebar:
     
     # Run button
     run_sim = st.button(get_text("run_simulation", lang), type="primary", use_container_width=True)
-
-# Main content
-st.title(get_text("app_title", lang))
-st.markdown(get_text("app_subtitle", lang))
-
-# File upload
-uploaded_files = st.file_uploader(
-    get_text("upload_files", lang), 
-    type=['csv', 'xlsx', 'xls'], 
-    accept_multiple_files=True
-)
-
-# Mathematical explanation
-with st.expander(get_text("math_framework_title", lang), expanded=False):
-    st.markdown(get_text("math_framework_content", lang))
-
-st.markdown("---")
 
 def load_data(files):
     dfs = []
@@ -521,425 +562,450 @@ def generate_pdf_report(results_df, best_row, df, lang='en'):
     buffer.seek(0)
     return buffer
 
-# Load data
-if uploaded_files:
-    df = load_data(uploaded_files)
-    
-    if df is not None:
-        st.success(get_text("loaded_trades", lang, count=len(df), files=len(uploaded_files)))
+# Main content
+# Check if admin panel should be shown
+if st.session_state.get('show_admin_panel', False) and st.session_state.user_role == 'admin':
+    show_admin_panel(auth_manager, st.session_state.username, lang)
+    if st.button("← " + get_text("back_to_app", lang)):
+        st.session_state.show_admin_panel = False
+        st.rerun()
+else:
+    # Main application content
+    st.title(get_text("app_title", lang))
+    st.markdown(get_text("app_subtitle", lang))
+
+    # File upload
+    uploaded_files = st.file_uploader(
+        get_text("upload_files", lang), 
+        type=['csv', 'xlsx', 'xls'], 
+        accept_multiple_files=True
+    )
+
+    # Mathematical explanation
+    with st.expander(get_text("math_framework_title", lang), expanded=False):
+        st.markdown(get_text("math_framework_content", lang))
+
+    st.markdown("---")
+
+    # Load data
+    if uploaded_files:
+        df = load_data(uploaded_files)
         
-        # Data preview
-        with st.expander(get_text("data_preview", lang)):
-            st.dataframe(df.head(20))
+        if df is not None:
+            st.success(get_text("loaded_trades", lang, count=len(df), files=len(uploaded_files)))
         
-        # Simulation
-        if run_sim and st.session_state.brackets:
-            with st.spinner(get_text("running_simulations", lang)):
-                
-                def simulate_inversions(data, brackets, commission_per_rt=0.0, contracts=1, point_value=2.0):
-                    results = []
+            # Data preview
+            with st.expander(get_text("data_preview", lang)):
+                st.dataframe(df.head(20))
+            
+            # Simulation
+            if run_sim and st.session_state.brackets:
+                with st.spinner(get_text("running_simulations", lang)):
                     
-                    for tp, sl in brackets:
-                        # Copy data
-                        sim_df = data.copy()
+                    def simulate_inversions(data, brackets, commission_per_rt=0.0, contracts=1, point_value=2.0):
+                        results = []
                         
-                        # Store original P/L for reference
-                        sim_df['original_pl'] = sim_df['p/l (points)']
-                        
-                        # Calculate outcomes for inverse trades
-                        outcomes = []
-                        for _, row in sim_df.iterrows():
-                            runup = abs(row['run-up (points)'])  # Absolute value
-                            drawdown = abs(row['drawdown (points)'])  # Absolute value
-                            dr_flag = row['d/r flag']
+                        for tp, sl in brackets:
+                            # Copy data
+                            sim_df = data.copy()
                             
-                            # When we bet AGAINST the trader:
-                            # - Their run-up becomes our drawdown
-                            # - Their drawdown becomes our run-up
+                            # Store original P/L for reference
+                            sim_df['original_pl'] = sim_df['p/l (points)']
                             
-                            if dr_flag == 'RP':  # Original trade had run-up first
-                                # For inverse trade: we face drawdown first (their runup)
-                                if runup >= sl:  # Their runup hits our stop loss
-                                    outcomes.append(-sl)
-                                elif drawdown >= tp:  # Their drawdown hits our take profit
-                                    outcomes.append(tp)
-                                else:
-                                    # Neither TP nor SL hit, return inverse of original P/L
-                                    outcomes.append(-row['original_pl'])
-                            else:  # Original trade had drawdown first (DD)
-                                # For inverse trade: we face run-up first (their drawdown)
-                                if drawdown >= tp:  # Their drawdown hits our take profit
-                                    outcomes.append(tp)
-                                elif runup >= sl:  # Their runup hits our stop loss
-                                    outcomes.append(-sl)
-                                else:
-                                    # Neither TP nor SL hit, return inverse of original P/L
-                                    outcomes.append(-row['original_pl'])
-                        
-                        sim_df['sim_pl'] = outcomes
-                        
-                        # Apply commissions
-                        # Use the point_value parameter passed to the function
-                        commission_in_points = commission_per_rt / point_value  # Convert dollars to points
-                        
-                        sim_df['gross_pl_points'] = sim_df['sim_pl'].copy()  # Gross P/L in points
-                        sim_df['gross_pl_dollars'] = sim_df['gross_pl_points'] * point_value  # Gross P/L in dollars
-                        sim_df['commission_dollars'] = commission_per_rt  # Commission in dollars
-                        sim_df['commission_points'] = commission_in_points  # Commission in points
-                        sim_df['net_pl_points'] = sim_df['gross_pl_points'] - commission_in_points  # Net P/L in points
-                        sim_df['net_pl_dollars'] = sim_df['net_pl_points'] * point_value  # Net P/L in dollars
-                        
-                        # Calculate metrics using net P/L in points (for consistency with original data)
-                        total_pl_points = sim_df['net_pl_points'].sum()
-                        total_pl_dollars = sim_df['net_pl_dollars'].sum()
-                        avg_pl_points = sim_df['net_pl_points'].mean()
-                        wins = (sim_df['net_pl_points'] > 0).sum()
-                        losses = (sim_df['net_pl_points'] < 0).sum()
-                        hit_rate = wins / len(sim_df) if len(sim_df) > 0 else 0
-                        
-                        avg_win = sim_df[sim_df['net_pl_points'] > 0]['net_pl_points'].mean() if wins > 0 else 0
-                        avg_loss = abs(sim_df[sim_df['net_pl_points'] < 0]['net_pl_points'].mean()) if losses > 0 else 1
-                        payoff_ratio = avg_win / avg_loss if avg_loss > 0 else 0
-                        
-                        expectancy = (hit_rate * avg_win) - ((1 - hit_rate) * avg_loss)
-                        
-                        # Sharpe ratio (using net returns in points)
-                        returns = sim_df['net_pl_points']
-                        sharpe = returns.mean() / returns.std() * np.sqrt(252) if returns.std() > 0 else 0
-                        
-                        # Max drawdown (using net P/L in points)
-                        cumsum = returns.cumsum()
-                        running_max = cumsum.expanding().max()
-                        drawdown_series = cumsum - running_max
-                        max_dd = abs(drawdown_series.min())
-                        
-                        # MAR ratio
-                        mar = total_pl_points / max_dd if max_dd > 0 else 0
-                        
-                        # Profit factor (using net P/L in points)
-                        gross_profit = sim_df[sim_df['net_pl_points'] > 0]['net_pl_points'].sum()
-                        gross_loss = abs(sim_df[sim_df['net_pl_points'] < 0]['net_pl_points'].sum())
-                        profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
-                        
-                        # Commission impact
-                        total_commission_dollars = commission_per_rt * len(sim_df) * contracts
-                        gross_total_pl_points = sim_df['gross_pl_points'].sum()
-                        gross_total_pl_dollars = sim_df['gross_pl_dollars'].sum()
-                        
-                        result = {
-                            'TP': tp,
-                            'SL': sl,
-                            'Gross P/L': gross_total_pl_points,  # In points
-                            'Gross P/L $': gross_total_pl_dollars,  # In dollars
-                            'Commission': total_commission_dollars,  # In dollars
-                            'Total P/L': total_pl_points,  # Net P/L in points
-                            'Total P/L $': total_pl_dollars,  # Net P/L in dollars
-                            'Avg P/L': avg_pl_points,
-                            'Hit Rate': hit_rate,
-                            'Payoff Ratio': payoff_ratio,
-                            'Expectancy': expectancy,
-                            'Sharpe Ratio': sharpe,
-                            'Max DD': max_dd,
-                            'MAR': mar,
-                            'Profit Factor': profit_factor,
-                            'sim_data': sim_df
-                        }
-                        
-                        # Advanced stats if enabled
-                        if advanced_stats:
-                            # T-test
-                            t_stat, p_value = stats.ttest_1samp(returns, 0)
-                            result['T-stat'] = t_stat
-                            result['P-value'] = p_value
+                            # Calculate outcomes for inverse trades
+                            outcomes = []
+                            for _, row in sim_df.iterrows():
+                                runup = abs(row['run-up (points)'])  # Absolute value
+                                drawdown = abs(row['drawdown (points)'])  # Absolute value
+                                dr_flag = row['d/r flag']
+                                
+                                # When we bet AGAINST the trader:
+                                # - Their run-up becomes our drawdown
+                                # - Their drawdown becomes our run-up
+                                
+                                if dr_flag == 'RP':  # Original trade had run-up first
+                                    # For inverse trade: we face drawdown first (their runup)
+                                    if runup >= sl:  # Their runup hits our stop loss
+                                        outcomes.append(-sl)
+                                    elif drawdown >= tp:  # Their drawdown hits our take profit
+                                        outcomes.append(tp)
+                                    else:
+                                        # Neither TP nor SL hit, return inverse of original P/L
+                                        outcomes.append(-row['original_pl'])
+                                else:  # Original trade had drawdown first (DD)
+                                    # For inverse trade: we face run-up first (their drawdown)
+                                    if drawdown >= tp:  # Their drawdown hits our take profit
+                                        outcomes.append(tp)
+                                    elif runup >= sl:  # Their runup hits our stop loss
+                                        outcomes.append(-sl)
+                                    else:
+                                        # Neither TP nor SL hit, return inverse of original P/L
+                                        outcomes.append(-row['original_pl'])
                             
-                            # Bootstrap CI
-                            bootstrap_means = []
-                            for _ in range(1000):
-                                sample = np.random.choice(returns, size=len(returns), replace=True)
-                                bootstrap_means.append(sample.mean())
-                            ci_lower, ci_upper = np.percentile(bootstrap_means, [2.5, 97.5])
-                            result['CI 95%'] = f"[{ci_lower:.2f}, {ci_upper:.2f}]"
+                            sim_df['sim_pl'] = outcomes
                             
-                            # Normality test
-                            jb_result = jarque_bera(returns)
-                            # jarque_bera returns (JB statistic, p-value, skew, kurtosis)
-                            jb_stat = jb_result[0]
-                            jb_pvalue = jb_result[1]
-                            result['JB p-value'] = jb_pvalue
+                            # Apply commissions
+                            # Use the point_value parameter passed to the function
+                            commission_in_points = commission_per_rt / point_value  # Convert dollars to points
+                            
+                            sim_df['gross_pl_points'] = sim_df['sim_pl'].copy()  # Gross P/L in points
+                            sim_df['gross_pl_dollars'] = sim_df['gross_pl_points'] * point_value  # Gross P/L in dollars
+                            sim_df['commission_dollars'] = commission_per_rt  # Commission in dollars
+                            sim_df['commission_points'] = commission_in_points  # Commission in points
+                            sim_df['net_pl_points'] = sim_df['gross_pl_points'] - commission_in_points  # Net P/L in points
+                            sim_df['net_pl_dollars'] = sim_df['net_pl_points'] * point_value  # Net P/L in dollars
+                            
+                            # Calculate metrics using net P/L in points (for consistency with original data)
+                            total_pl_points = sim_df['net_pl_points'].sum()
+                            total_pl_dollars = sim_df['net_pl_dollars'].sum()
+                            avg_pl_points = sim_df['net_pl_points'].mean()
+                            wins = (sim_df['net_pl_points'] > 0).sum()
+                            losses = (sim_df['net_pl_points'] < 0).sum()
+                            hit_rate = wins / len(sim_df) if len(sim_df) > 0 else 0
+                            
+                            avg_win = sim_df[sim_df['net_pl_points'] > 0]['net_pl_points'].mean() if wins > 0 else 0
+                            avg_loss = abs(sim_df[sim_df['net_pl_points'] < 0]['net_pl_points'].mean()) if losses > 0 else 1
+                            payoff_ratio = avg_win / avg_loss if avg_loss > 0 else 0
+                            
+                            expectancy = (hit_rate * avg_win) - ((1 - hit_rate) * avg_loss)
+                            
+                            # Sharpe ratio (using net returns in points)
+                            returns = sim_df['net_pl_points']
+                            sharpe = returns.mean() / returns.std() * np.sqrt(252) if returns.std() > 0 else 0
+                            
+                            # Max drawdown (using net P/L in points)
+                            cumsum = returns.cumsum()
+                            running_max = cumsum.expanding().max()
+                            drawdown_series = cumsum - running_max
+                            max_dd = abs(drawdown_series.min())
+                            
+                            # MAR ratio
+                            mar = total_pl_points / max_dd if max_dd > 0 else 0
+                            
+                            # Profit factor (using net P/L in points)
+                            gross_profit = sim_df[sim_df['net_pl_points'] > 0]['net_pl_points'].sum()
+                            gross_loss = abs(sim_df[sim_df['net_pl_points'] < 0]['net_pl_points'].sum())
+                            profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
+                            
+                            # Commission impact
+                            total_commission_dollars = commission_per_rt * len(sim_df) * contracts
+                            gross_total_pl_points = sim_df['gross_pl_points'].sum()
+                            gross_total_pl_dollars = sim_df['gross_pl_dollars'].sum()
+                            
+                            result = {
+                                'TP': tp,
+                                'SL': sl,
+                                'Gross P/L': gross_total_pl_points,  # In points
+                                'Gross P/L $': gross_total_pl_dollars,  # In dollars
+                                'Commission': total_commission_dollars,  # In dollars
+                                'Total P/L': total_pl_points,  # Net P/L in points
+                                'Total P/L $': total_pl_dollars,  # Net P/L in dollars
+                                'Avg P/L': avg_pl_points,
+                                'Hit Rate': hit_rate,
+                                'Payoff Ratio': payoff_ratio,
+                                'Expectancy': expectancy,
+                                'Sharpe Ratio': sharpe,
+                                'Max DD': max_dd,
+                                'MAR': mar,
+                                'Profit Factor': profit_factor,
+                                'sim_data': sim_df
+                            }
+                            
+                            # Advanced stats if enabled
+                            if advanced_stats:
+                                # T-test
+                                t_stat, p_value = stats.ttest_1samp(returns, 0)
+                                result['T-stat'] = t_stat
+                                result['P-value'] = p_value
+                                
+                                # Bootstrap CI
+                                bootstrap_means = []
+                                for _ in range(1000):
+                                    sample = np.random.choice(returns, size=len(returns), replace=True)
+                                    bootstrap_means.append(sample.mean())
+                                ci_lower, ci_upper = np.percentile(bootstrap_means, [2.5, 97.5])
+                                result['CI 95%'] = f"[{ci_lower:.2f}, {ci_upper:.2f}]"
+                                
+                                # Normality test
+                                jb_result = jarque_bera(returns)
+                                # jarque_bera returns (JB statistic, p-value, skew, kurtosis)
+                                jb_stat = jb_result[0]
+                                jb_pvalue = jb_result[1]
+                                result['JB p-value'] = jb_pvalue
+                            
+                            results.append(result)
                         
-                        results.append(result)
+                        return pd.DataFrame(results)
                     
-                    return pd.DataFrame(results)
-                
-                # Run simulation
-                results_df = simulate_inversions(
-                    df, 
-                    st.session_state.brackets,
-                    commission_per_rt=total_commission,
-                    contracts=contract_size,
-                    point_value=point_value
-                )
-                
-                # Find best bracket
-                metric_map = {
-                    'Expectancy': 'Expectancy',
-                    'Sharpe Ratio': 'Sharpe Ratio', 
-                    'Profit Factor': 'Profit Factor',
-                    'Hit Rate': 'Hit Rate',
-                    'Total P/L': 'Total P/L'
-                }
-                best_idx = results_df[metric_map[edge_metric]].idxmax()
-                best_row = results_df.iloc[best_idx]  # Define best_row here
-                
-                # Display results
-                st.header(get_text("simulation_results", lang))
-                
-                # Explain the simulation
-                with st.expander(get_text("how_inverse_works_title", lang)):
-                    st.markdown(get_text("how_inverse_works", lang))
-                
-                # Create tabs for basic and advanced analysis
-                if advanced_stats:
-                    tab1, tab2 = st.tabs([get_text("basic_analysis_tab", lang), get_text("advanced_stats_tab", lang)])
-                else:
-                    # If advanced stats not selected, just show basic analysis without tabs
-                    tab1 = st.container()
-                    tab2 = None
-                
-                # Highlight best function
-                def highlight_best(row):
-                    if row.name == best_idx:
-                        return ['background-color: lightgreen'] * len(row)
-                    return [''] * len(row)
-                
-                # Basic Analysis Tab
-                with tab1:
-                    st.markdown(get_text("basic_metrics_title", lang))
-                    
-                    # Basic columns - show both points and dollars
-                    basic_cols = ['TP', 'SL', 'Gross P/L', 'Gross P/L $', 'Commission', 'Total P/L', 'Total P/L $', 
-                                 'Avg P/L', 'Hit Rate', 'Payoff Ratio', 'Expectancy', 'Sharpe Ratio', 'Max DD', 'MAR', 'Profit Factor']
-                    
-                    # Check if all columns exist
-                    available_cols = [col for col in basic_cols if col in results_df.columns]
-                    
-                    st.dataframe(
-                        results_df[available_cols].style.apply(highlight_best, axis=1).format({
-                            'Gross P/L': '{:.2f}',
-                            'Gross P/L $': '${:,.2f}',
-                            'Commission': '${:,.2f}',
-                            'Total P/L': '{:.2f}',
-                            'Total P/L $': '${:,.2f}',
-                            'Avg P/L': '{:.2f}',
-                            'Hit Rate': '{:.2%}',
-                            'Payoff Ratio': '{:.2f}',
-                            'Expectancy': '{:.2f}',
-                            'Sharpe Ratio': '{:.2f}',
-                            'Max DD': '{:.2f}',
-                            'MAR': '{:.2f}',
-                            'Profit Factor': '{:.2f}'
-                        })
+                    # Run simulation
+                    results_df = simulate_inversions(
+                        df, 
+                        st.session_state.brackets,
+                        commission_per_rt=total_commission,
+                        contracts=contract_size,
+                        point_value=point_value
                     )
-                
-                # Advanced Statistics Tab (only if enabled)
-                if tab2 is not None:
-                    with tab2:
-                        st.markdown(get_text("statistical_tests_title", lang))
+                    
+                    # Find best bracket
+                    metric_map = {
+                        'Expectancy': 'Expectancy',
+                        'Sharpe Ratio': 'Sharpe Ratio', 
+                        'Profit Factor': 'Profit Factor',
+                        'Hit Rate': 'Hit Rate',
+                        'Total P/L': 'Total P/L'
+                    }
+                    best_idx = results_df[metric_map[edge_metric]].idxmax()
+                    best_row = results_df.iloc[best_idx]  # Define best_row here
+                    
+                    # Display results
+                    st.header(get_text("simulation_results", lang))
+                    
+                    # Explain the simulation
+                    with st.expander(get_text("how_inverse_works_title", lang)):
+                        st.markdown(get_text("how_inverse_works", lang))
+                    
+                    # Create tabs for basic and advanced analysis
+                    if advanced_stats:
+                        tab1, tab2 = st.tabs([get_text("basic_analysis_tab", lang), get_text("advanced_stats_tab", lang)])
+                    else:
+                        # If advanced stats not selected, just show basic analysis without tabs
+                        tab1 = st.container()
+                        tab2 = None
+                    
+                    # Highlight best function
+                    def highlight_best(row):
+                        if row.name == best_idx:
+                            return ['background-color: lightgreen'] * len(row)
+                        return [''] * len(row)
+                    
+                    # Basic Analysis Tab
+                    with tab1:
+                        st.markdown(get_text("basic_metrics_title", lang))
                         
-                        # Show results with statistical tests
-                        stat_cols = ['TP', 'SL', 'Total P/L', 'Expectancy', 'T-stat', 'P-value', 'CI 95%', 'JB p-value']
+                        # Basic columns - show both points and dollars
+                        basic_cols = ['TP', 'SL', 'Gross P/L', 'Gross P/L $', 'Commission', 'Total P/L', 'Total P/L $', 
+                                     'Avg P/L', 'Hit Rate', 'Payoff Ratio', 'Expectancy', 'Sharpe Ratio', 'Max DD', 'MAR', 'Profit Factor']
+                        
+                        # Check if all columns exist
+                        available_cols = [col for col in basic_cols if col in results_df.columns]
                         
                         st.dataframe(
-                            results_df[stat_cols].style.apply(highlight_best, axis=1).format({
+                            results_df[available_cols].style.apply(highlight_best, axis=1).format({
+                                'Gross P/L': '{:.2f}',
+                                'Gross P/L $': '${:,.2f}',
+                                'Commission': '${:,.2f}',
                                 'Total P/L': '{:.2f}',
+                                'Total P/L $': '${:,.2f}',
+                                'Avg P/L': '{:.2f}',
+                                'Hit Rate': '{:.2%}',
+                                'Payoff Ratio': '{:.2f}',
                                 'Expectancy': '{:.2f}',
-                                'T-stat': '{:.3f}',
-                                'P-value': '{:.4f}',
-                                'JB p-value': '{:.4f}'
+                                'Sharpe Ratio': '{:.2f}',
+                                'Max DD': '{:.2f}',
+                                'MAR': '{:.2f}',
+                                'Profit Factor': '{:.2f}'
                             })
                         )
-                        
-                        # Detailed interpretation for best bracket
-                        st.markdown(get_text("best_bracket_analysis", lang))
-                        best_pvalue = best_row.get('P-value', 1.0)
-                        best_ci = best_row.get('CI 95%', '[0, 0]')
-                        best_jb = best_row.get('JB p-value', 1.0)
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.markdown(get_text("edge_significance", lang))
-                            if best_pvalue < 0.01:
-                                st.success(get_text("highly_significant", lang, p=best_pvalue))
-                                st.markdown(get_text("very_strong_evidence", lang))
-                            elif best_pvalue < 0.05:
-                                st.warning(get_text("significant", lang, p=best_pvalue))
-                                st.markdown(get_text("good_evidence", lang))
-                            else:
-                                st.error(get_text("not_significant", lang, p=best_pvalue))
-                                st.markdown(get_text("insufficient_evidence", lang))
+                    
+                    # Advanced Statistics Tab (only if enabled)
+                    if tab2 is not None:
+                        with tab2:
+                            st.markdown(get_text("statistical_tests_title", lang))
                             
-                            # Additional context
-                            st.markdown(f"""
-                            **T-statistic**: {best_row.get('T-stat', 0):.3f}
+                            # Show results with statistical tests
+                            stat_cols = ['TP', 'SL', 'Total P/L', 'Expectancy', 'T-stat', 'P-value', 'CI 95%', 'JB p-value']
                             
-                            Interpretation: The average P/L is {abs(best_row.get('T-stat', 0)):.1f} standard errors 
-                            {'above' if best_row.get('T-stat', 0) > 0 else 'below'} zero.
-                            """)
-                        
-                        with col2:
-                            st.markdown(get_text("confidence_interval", lang))
-                            st.info(get_text("true_edge_between", lang, ci=best_ci))
-                            # Parse CI to check if it includes zero
-                            try:
-                                ci_str = best_ci.strip('[]')
-                                ci_lower, ci_upper = map(float, ci_str.split(','))
-                                if ci_lower > 0:
-                                    st.success(get_text("ci_excludes_zero", lang))
-                                elif ci_upper < 0:
-                                    st.error(get_text("ci_negative", lang))
+                            st.dataframe(
+                                results_df[stat_cols].style.apply(highlight_best, axis=1).format({
+                                    'Total P/L': '{:.2f}',
+                                    'Expectancy': '{:.2f}',
+                                    'T-stat': '{:.3f}',
+                                    'P-value': '{:.4f}',
+                                    'JB p-value': '{:.4f}'
+                                })
+                            )
+                            
+                            # Detailed interpretation for best bracket
+                            st.markdown(get_text("best_bracket_analysis", lang))
+                            best_pvalue = best_row.get('P-value', 1.0)
+                            best_ci = best_row.get('CI 95%', '[0, 0]')
+                            best_jb = best_row.get('JB p-value', 1.0)
+                            
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.markdown(get_text("edge_significance", lang))
+                                if best_pvalue < 0.01:
+                                    st.success(get_text("highly_significant", lang, p=best_pvalue))
+                                    st.markdown(get_text("very_strong_evidence", lang))
+                                elif best_pvalue < 0.05:
+                                    st.warning(get_text("significant", lang, p=best_pvalue))
+                                    st.markdown(get_text("good_evidence", lang))
                                 else:
-                                    st.warning(get_text("ci_includes_zero", lang))
+                                    st.error(get_text("not_significant", lang, p=best_pvalue))
+                                    st.markdown(get_text("insufficient_evidence", lang))
                                 
                                 # Additional context
                                 st.markdown(f"""
-                                {get_text("interval_width", lang, width=ci_upper - ci_lower)}
+                                **T-statistic**: {best_row.get('T-stat', 0):.3f}
                                 
-                                {get_text("narrower_intervals", lang)}
+                                Interpretation: The average P/L is {abs(best_row.get('T-stat', 0)):.1f} standard errors 
+                                {'above' if best_row.get('T-stat', 0) > 0 else 'below'} zero.
                                 """)
-                            except:
-                                pass
-                        
-                        st.markdown("---")
-                        st.markdown(get_text("distribution_normality", lang))
-                        if best_jb < 0.05:
-                            st.info(get_text("non_normal_returns", lang, p=best_jb))
-                            st.markdown("""
-                            Non-normal distributions are common in trading and may indicate:
-                            - Fat tails (extreme events more likely than normal distribution predicts)
-                            - Skewness (asymmetric returns)
-                            - Need for robust statistical methods
-                            """)
-                        else:
-                            st.info(get_text("normal_returns", lang, p=best_jb))
-                            st.markdown("Standard risk models and metrics are appropriate.")
-                        
-                        # Monte Carlo simulation preview
-                        st.markdown("---")
-                        st.markdown(get_text("bootstrap_title", lang))
-                        st.markdown(get_text("bootstrap_desc", lang, count=len(best_row['sim_data'])))
-                
-                # Best bracket details (shown above tabs)
-                st.success(get_text("best_bracket", lang, 
-                                  tp=best_row['TP'], 
-                                  sl=best_row['SL'],
-                                  metric=edge_metric,
-                                  value=best_row[metric_map[edge_metric]]))
-                
-                # Edge comparison (shown above tabs)
-                original_total = df['p/l (points)'].sum()
-                inverse_simple = -original_total  # Simple inverse without brackets
-                inverse_optimized = best_row['Total P/L']
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric(get_text("original_pl", lang), f"{original_total:.2f}", 
-                             delta=None, delta_color="off")
-                with col2:
-                    st.metric(get_text("simple_inverse_pl", lang), f"{inverse_simple:.2f}", 
-                             delta=f"{inverse_simple - original_total:.2f}", 
-                             delta_color="normal")
-                with col3:
-                    st.metric(get_text("optimized_inverse_pl", lang), f"{inverse_optimized:.2f}", 
-                             delta=f"{inverse_optimized - original_total:.2f}", 
-                             delta_color="normal")
-                
-                # Commission Impact Summary
-                if total_commission > 0:
-                    st.markdown("---")
-                    st.subheader(get_text("commission_impact_title", lang))
+                            
+                            with col2:
+                                st.markdown(get_text("confidence_interval", lang))
+                                st.info(get_text("true_edge_between", lang, ci=best_ci))
+                                # Parse CI to check if it includes zero
+                                try:
+                                    ci_str = best_ci.strip('[]')
+                                    ci_lower, ci_upper = map(float, ci_str.split(','))
+                                    if ci_lower > 0:
+                                        st.success(get_text("ci_excludes_zero", lang))
+                                    elif ci_upper < 0:
+                                        st.error(get_text("ci_negative", lang))
+                                    else:
+                                        st.warning(get_text("ci_includes_zero", lang))
+                                    
+                                    # Additional context
+                                    st.markdown(f"""
+                                    {get_text("interval_width", lang, width=ci_upper - ci_lower)}
+                                    
+                                    {get_text("narrower_intervals", lang)}
+                                    """)
+                                except:
+                                    pass
+                            
+                            st.markdown("---")
+                            st.markdown(get_text("distribution_normality", lang))
+                            if best_jb < 0.05:
+                                st.info(get_text("non_normal_returns", lang, p=best_jb))
+                                st.markdown("""
+                                Non-normal distributions are common in trading and may indicate:
+                                - Fat tails (extreme events more likely than normal distribution predicts)
+                                - Skewness (asymmetric returns)
+                                - Need for robust statistical methods
+                                """)
+                            else:
+                                st.info(get_text("normal_returns", lang, p=best_jb))
+                                st.markdown("Standard risk models and metrics are appropriate.")
+                            
+                            # Monte Carlo simulation preview
+                            st.markdown("---")
+                            st.markdown(get_text("bootstrap_title", lang))
+                            st.markdown(get_text("bootstrap_desc", lang, count=len(best_row['sim_data'])))
                     
-                    col1, col2, col3, col4 = st.columns(4)
+                    # Best bracket details (shown above tabs)
+                    st.success(get_text("best_bracket", lang, 
+                                      tp=best_row['TP'], 
+                                      sl=best_row['SL'],
+                                      metric=edge_metric,
+                                      value=best_row[metric_map[edge_metric]]))
+                    
+                    # Edge comparison (shown above tabs)
+                    original_total = df['p/l (points)'].sum()
+                    inverse_simple = -original_total  # Simple inverse without brackets
+                    inverse_optimized = best_row['Total P/L']
+                    
+                    col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric(get_text("gross_pl_metric", lang), f"{best_row['Gross P/L']:.2f}")
+                        st.metric(get_text("original_pl", lang), f"{original_total:.2f}", 
+                                 delta=None, delta_color="off")
                     with col2:
-                        st.metric(get_text("total_commission_metric", lang), f"-${best_row['Commission']:.2f}")
+                        st.metric(get_text("simple_inverse_pl", lang), f"{inverse_simple:.2f}", 
+                                 delta=f"{inverse_simple - original_total:.2f}", 
+                                 delta_color="normal")
                     with col3:
-                        st.metric(get_text("net_pl_metric", lang), f"{best_row['Total P/L']:.2f}")
-                    with col4:
-                        commission_impact_pct = (best_row['Commission'] / abs(best_row['Gross P/L']) * 100) if best_row['Gross P/L'] != 0 else 0
-                        st.metric(get_text("commission_impact_pct", lang), f"{commission_impact_pct:.1f}%")
+                        st.metric(get_text("optimized_inverse_pl", lang), f"{inverse_optimized:.2f}", 
+                                 delta=f"{inverse_optimized - original_total:.2f}", 
+                                 delta_color="normal")
                     
-                    st.info(get_text("commission_impact_info", lang, 
-                                   contracts=int(contract_size),
-                                   commission_per_rt=total_commission,
-                                   total_trades=len(best_row['sim_data'])))
-                
-                st.markdown("---")
-                
-                # Visualizations (shown below tabs)
-                st.markdown(get_text("visualizations", lang))
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    # Histogram
-                    fig, ax = plt.subplots(figsize=(8, 6))
-                    best_data = best_row['sim_data']['net_pl_points']
-                    ax.hist(best_data, bins=30, alpha=0.7, color='blue', edgecolor='black')
-                    ax.axvline(best_data.mean(), color='red', linestyle='--', 
-                              label=get_text("mean_label", lang, value=best_data.mean()))
-                    ax.set_xlabel('Net P/L (points)')
-                    ax.set_ylabel(get_text("frequency", lang))
-                    ax.set_title(get_text("pl_distribution", lang, tp=best_row["TP"], sl=best_row["SL"]))
-                    ax.legend()
-                    ax.grid(True, alpha=0.3)
-                    st.pyplot(fig)
-                
-                with col2:
-                    # Equity curve
-                    fig, ax = plt.subplots(figsize=(8, 6))
-                    equity = best_row['sim_data']['net_pl_points'].cumsum()
-                    ax.plot(equity, color='green', linewidth=2)
-                    ax.fill_between(range(len(equity)), 0, equity, alpha=0.3, color='green')
-                    ax.set_xlabel(get_text("trade_number", lang))
-                    ax.set_ylabel(get_text("cumulative_pl", lang))
-                    ax.set_title(get_text("equity_curve", lang, tp=best_row["TP"], sl=best_row["SL"]))
-                    ax.grid(True, alpha=0.3)
-                    st.pyplot(fig)
-                
-                # Export options
-                # Define all columns for export
-                export_cols = ['TP', 'SL', 'Total P/L', 'Avg P/L', 'Hit Rate', 'Payoff Ratio', 
-                              'Expectancy', 'Sharpe Ratio', 'Max DD', 'MAR', 'Profit Factor']
-                if advanced_stats:
-                    export_cols.extend(['T-stat', 'P-value', 'CI 95%', 'JB p-value'])
-                
-                # Export options in columns
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    csv = results_df[export_cols].to_csv(index=False)
-                    st.download_button(
-                        label=get_text("download_csv", lang),
-                        data=csv,
-                        file_name="inverse_edge_results.csv",
-                        mime="text/csv"
-                    )
-                
-                with col2:
-                    pdf_buffer = generate_pdf_report(results_df, best_row, df, lang)
-                    st.download_button(
-                        label=get_text("download_pdf", lang),
-                        data=pdf_buffer,
-                        file_name="inverse_edge_report.pdf",
-                        mime="application/pdf"
-                    )
-                
-                # Store in state for LLM with current bracket info
-                st.session_state.df = best_row['sim_data']
-                st.session_state.TP = best_row['TP']
-                st.session_state.SL = best_row['SL']
-                st.session_state.results_df = results_df
-                
+                    # Commission Impact Summary
+                    if total_commission > 0:
+                        st.markdown("---")
+                        st.subheader(get_text("commission_impact_title", lang))
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric(get_text("gross_pl_metric", lang), f"{best_row['Gross P/L']:.2f}")
+                        with col2:
+                            st.metric(get_text("total_commission_metric", lang), f"-${best_row['Commission']:.2f}")
+                        with col3:
+                            st.metric(get_text("net_pl_metric", lang), f"{best_row['Total P/L']:.2f}")
+                        with col4:
+                            commission_impact_pct = (best_row['Commission'] / abs(best_row['Gross P/L']) * 100) if best_row['Gross P/L'] != 0 else 0
+                            st.metric(get_text("commission_impact_pct", lang), f"{commission_impact_pct:.1f}%")
+                        
+                        st.info(get_text("commission_impact_info", lang, 
+                                       contracts=int(contract_size),
+                                       commission_per_rt=total_commission,
+                                       total_trades=len(best_row['sim_data'])))
+                    
+                    st.markdown("---")
+                    
+                    # Visualizations (shown below tabs)
+                    st.markdown(get_text("visualizations", lang))
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Histogram
+                        fig, ax = plt.subplots(figsize=(8, 6))
+                        best_data = best_row['sim_data']['net_pl_points']
+                        ax.hist(best_data, bins=30, alpha=0.7, color='blue', edgecolor='black')
+                        ax.axvline(best_data.mean(), color='red', linestyle='--', 
+                                  label=get_text("mean_label", lang, value=best_data.mean()))
+                        ax.set_xlabel('Net P/L (points)')
+                        ax.set_ylabel(get_text("frequency", lang))
+                        ax.set_title(get_text("pl_distribution", lang, tp=best_row["TP"], sl=best_row["SL"]))
+                        ax.legend()
+                        ax.grid(True, alpha=0.3)
+                        st.pyplot(fig)
+                    
+                    with col2:
+                        # Equity curve
+                        fig, ax = plt.subplots(figsize=(8, 6))
+                        equity = best_row['sim_data']['net_pl_points'].cumsum()
+                        ax.plot(equity, color='green', linewidth=2)
+                        ax.fill_between(range(len(equity)), 0, equity, alpha=0.3, color='green')
+                        ax.set_xlabel(get_text("trade_number", lang))
+                        ax.set_ylabel(get_text("cumulative_pl", lang))
+                        ax.set_title(get_text("equity_curve", lang, tp=best_row["TP"], sl=best_row["SL"]))
+                        ax.grid(True, alpha=0.3)
+                        st.pyplot(fig)
+                    
+                    # Export options
+                    # Define all columns for export
+                    export_cols = ['TP', 'SL', 'Total P/L', 'Avg P/L', 'Hit Rate', 'Payoff Ratio', 
+                                  'Expectancy', 'Sharpe Ratio', 'Max DD', 'MAR', 'Profit Factor']
+                    if advanced_stats:
+                        export_cols.extend(['T-stat', 'P-value', 'CI 95%', 'JB p-value'])
+                    
+                    # Export options in columns
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        csv = results_df[export_cols].to_csv(index=False)
+                        st.download_button(
+                            label=get_text("download_csv", lang),
+                            data=csv,
+                            file_name="inverse_edge_results.csv",
+                            mime="text/csv"
+                        )
+                    
+                    with col2:
+                        pdf_buffer = generate_pdf_report(results_df, best_row, df, lang)
+                        st.download_button(
+                            label=get_text("download_pdf", lang),
+                            data=pdf_buffer,
+                            file_name="inverse_edge_report.pdf",
+                            mime="application/pdf"
+                        )
+                    
+                    # Store in state for LLM with current bracket info
+                    st.session_state.df = best_row['sim_data']
+                    st.session_state.TP = best_row['TP']
+                    st.session_state.SL = best_row['SL']
+                    st.session_state.results_df = results_df
+                    
 # LLM Assistant
 st.header(get_text("ai_assistant", lang))
 st.info(get_text("ai_info", lang))

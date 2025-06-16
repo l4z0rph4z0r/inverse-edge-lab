@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py ./app.py
 COPY translations.py ./translations.py
+COPY auth_manager.py ./auth_manager.py
+COPY admin_panel.py ./admin_panel.py
 
 RUN mkdir -p uploads
 
