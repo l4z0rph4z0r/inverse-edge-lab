@@ -154,5 +154,68 @@ Check column mapping in `load_data()` function. The app expects:
 ### Language Not Switching
 Clear browser cache or use incognito mode.
 
+### Potential Future Enhancements:
+1. ~~Move API keys to environment variables~~ ✅ DONE
+2. Add user registration system
+3. Implement real Redis authentication
+4. Add more languages
+5. Enhanced visualizations (candlestick charts, heatmaps)
+6. ~~Export reports as PDF~~ ✅ DONE
+7. Batch processing for multiple files
+8. Historical analysis tracking
+9. Performance optimizations for large datasets
+10. Additional statistical tests (Monte Carlo, Walk-forward analysis)
+11. ~~Add commission calculations~~ ✅ DONE
+12. Add support for different contract types (futures, forex)
+13. Implement position sizing calculations
+14. Add risk management metrics (VaR, CVaR)
+
+## Recent Updates (2025-06-16)
+
+### Commission Feature Implementation
+- **Problem Identified**: Commission calculations were mixing units (dollars vs points)
+- **Solution**: Proper conversion using point value ($2 for MNQ, $5 for MES, etc.)
+- **New Features**:
+  - Contract size input
+  - Commission per side input
+  - Point value configuration
+  - Display both points and dollars
+  - Commission impact analysis section
+  - Updated Mathematical Framework with commission explanations
+
+### Repository Cleanup
+- Removed Claude Code workflow files that were accidentally included
+- Updated .gitignore to be project-specific
+- Added comprehensive README with hosting instructions
+- Made repository focused solely on Inverse Edge Lab
+
+### Key Learnings for Future Development
+1. **Unit Consistency**: Always track whether values are in points or dollars
+2. **Commission Impact**: Small edges can be eliminated by commissions - must account for this
+3. **Docker Performance**: Use `docker system prune -f` to clean cache when slow
+4. **Repository Hygiene**: Keep project files separate from development environment files
+
+## Important for Resuming Work
+
+### Current Docker Setup
+```bash
+cd 01-projects/CC-001-inverse-edge-lab/DEV
+docker compose up -d
+# Access at http://localhost:8501
+```
+
+### Testing Commission Feature
+1. Upload the SL5TP30.xlsx file
+2. Set commission to $0 first to see gross P/L
+3. Set commission to $1.30 per side ($2.60 round trip)
+4. Note the dramatic difference in net P/L
+5. Commission in points = Commission in dollars ÷ Point value
+
+### Mathematical Framework Update
+The dashboard now shows:
+- **Step 1**: Calculate gross P/L from inverse positions (in points)
+- **Step 2**: Convert commission to points and subtract to get net P/L
+- All metrics (Sharpe, MAR, etc.) use net P/L for accuracy
+
 ## Last Updated
-2025-01-16 - Added multilingual support and fixed syntax errors
+2025-06-16 - Implemented commission handling and cleaned up repository
