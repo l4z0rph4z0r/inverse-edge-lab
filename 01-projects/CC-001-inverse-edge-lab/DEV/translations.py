@@ -325,6 +325,24 @@ This provides a robust estimate of uncertainty without assuming normal distribut
         "col_pvalue": "P-value",
         "col_ci95": "CI 95%",
         "col_jb_pvalue": "JB p-value",
+        
+        # Calculation Preview
+        "calculation_preview": "Calculation Preview",
+        "show_calculation_details": "Show Calculation Details for Best Bracket",
+        "calculation_preview_desc": "This table shows how the inverse trading logic is applied to each trade. All values are in points unless otherwise specified. Commission shown is per round-trip.",
+        "trade_num": "Trade #",
+        "original_pl": "Original P/L",
+        "runup": "Run-up",
+        "drawdown": "Drawdown",
+        "gross_inv_pl": "Inverted P/L (Gross)",
+        "commission": "Commission RT",
+        "net_inv_pl": "Inverted P/L (Net)",
+        "logic": "Logic Applied",
+        "preview_summary": "Summary (First 100 Trades)",
+        "total_gross_pl": "Total Gross P/L",
+        "total_commission": "Total Commission",
+        "total_net_pl": "Total Net P/L",
+        "calculation_note": "Note: This shows the first 100 trades with the best bracket (TP: {tp}, SL: {sl}). All P/L values in the table are in points. Dollar amounts are shown in the summary above.",
     },
     
     "it": {
@@ -650,6 +668,24 @@ Questo fornisce una stima robusta dell'incertezza senza assumere distribuzione n
         "col_pvalue": "P-value",
         "col_ci95": "IC 95%",
         "col_jb_pvalue": "JB p-value",
+        
+        # Calculation Preview
+        "calculation_preview": "Anteprima Calcoli",
+        "show_calculation_details": "Mostra Dettagli Calcoli per il Miglior Bracket",
+        "calculation_preview_desc": "Questa tabella mostra come la logica di trading inverso viene applicata ad ogni operazione. Tutti i valori sono in punti salvo diversa indicazione. La commissione mostrata è per andata e ritorno.",
+        "trade_num": "Trade #",
+        "original_pl": "P/L Originale",
+        "runup": "Run-up",
+        "drawdown": "Drawdown",
+        "gross_inv_pl": "P/L Inverso (Lordo)",
+        "commission": "Commissione RT",
+        "net_inv_pl": "P/L Inverso (Netto)",
+        "logic": "Logica Applicata",
+        "preview_summary": "Riepilogo (Prime 100 Operazioni)",
+        "total_gross_pl": "P/L Lordo Totale",
+        "total_commission": "Commissione Totale",
+        "total_net_pl": "P/L Netto Totale",
+        "calculation_note": "Nota: Mostra le prime 100 operazioni con il miglior bracket (TP: {tp}, SL: {sl}). Tutti i valori P/L nella tabella sono in punti. Gli importi in dollari sono mostrati nel riepilogo sopra.",
     }
 }
 

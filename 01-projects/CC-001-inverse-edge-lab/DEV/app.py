@@ -25,6 +25,7 @@ from io import BytesIO
 import base64
 from auth_manager import AuthManager
 from admin_panel import show_admin_panel
+import hashlib
 
 warnings.filterwarnings('ignore')
 
@@ -605,7 +606,14 @@ else:
                     def simulate_inversions(data, brackets, commission_per_rt=0.0, contracts=1, point_value=2.0):
                         results = []
                         
-                        for tp, sl in brackets:
+                        # Add progress bar for better user experience
+                        progress_bar = st.progress(0)
+                        total_brackets = len(brackets)
+                        
+                        for idx, (tp, sl) in enumerate(brackets):
+                            # Update progress
+                            progress = (idx + 1) / total_brackets
+                            progress_bar.progress(progress, text=f"Testing bracket {idx + 1}/{total_brackets}: TP={tp}, SL={sl}")
                             # Copy data
                             sim_df = data.copy()
                             
@@ -734,6 +742,9 @@ else:
                                 result['JB p-value'] = jb_pvalue
                             
                             results.append(result)
+                        
+                        # Clear progress bar
+                        progress_bar.empty()
                         
                         return pd.DataFrame(results)
                     
@@ -1005,6 +1016,129 @@ else:
                     st.session_state.TP = best_row['TP']
                     st.session_state.SL = best_row['SL']
                     st.session_state.results_df = results_df
+                    
+                    # Calculation Preview Section
+                    try:
+                        st.markdown("---")
+                        st.header("📊 " + get_text("calculation_preview", lang))
+                        
+                        with st.expander(get_text("show_calculation_details", lang), expanded=False):
+                            st.markdown(get_text("calculation_preview_desc", lang))
+                            
+                            # Get the best bracket's simulation data
+                            best_sim_data = best_row['sim_data']
+                            
+                            # Prepare preview data (first 100 trades)
+                            preview_df = best_sim_data.head(100).copy()
+                            
+                            # Create display dataframe showing the calculation steps
+                            display_df = pd.DataFrame({
+                                get_text("trade_num", lang): range(1, len(preview_df) + 1),
+                                get_text("original_pl", lang): preview_df['original_pl'].round(2),
+                                get_text("runup", lang): preview_df['run-up (points)'].abs().round(2),
+                                get_text("drawdown", lang): preview_df['drawdown (points)'].abs().round(2),
+                                'D/R': preview_df['d/r flag'],
+                                get_text("gross_inv_pl", lang): preview_df['gross_pl_points'].round(2),
+                                get_text("commission", lang): preview_df['commission_points'].round(2),
+                                get_text("net_inv_pl", lang): preview_df['net_pl_points'].round(2)
+                            })
+                            
+                            # Add logic explanation column
+                            logic_explanations = []
+                            for _, row in preview_df.iterrows():
+                                runup = abs(row['run-up (points)'])
+                                drawdown = abs(row['drawdown (points)'])
+                                dr_flag = row['d/r flag']
+                                original_pl = row['original_pl']
+                                gross_pl = row['gross_pl_points']
+                                
+                                if dr_flag == 'RP':
+                                    if runup >= best_row['SL']:
+                                        logic_explanations.append(f"RP: Run-up {runup:.1f} ≥ SL {best_row['SL']} → -{best_row['SL']}")
+                                    elif drawdown >= best_row['TP']:
+                                        logic_explanations.append(f"RP: Drawdown {drawdown:.1f} ≥ TP {best_row['TP']} → +{best_row['TP']}")
+                                    else:
+                                        logic_explanations.append(f"RP: No hit → -{original_pl:.1f}")
+                                else:  # DD
+                                    if drawdown >= best_row['TP']:
+                                        logic_explanations.append(f"DD: Drawdown {drawdown:.1f} ≥ TP {best_row['TP']} → +{best_row['TP']}")
+                                    elif runup >= best_row['SL']:
+                                        logic_explanations.append(f"DD: Run-up {runup:.1f} ≥ SL {best_row['SL']} → -{best_row['SL']}")
+                                    else:
+                                        logic_explanations.append(f"DD: No hit → -{original_pl:.1f}")
+                            
+                            display_df[get_text("logic", lang)] = logic_explanations
+                            
+                            # Style the dataframe
+                            def style_preview(row):
+                                styles = [''] * len(row)
+                                # Get the net P/L column index
+                                net_pl_col = list(display_df.columns).index(get_text("net_inv_pl", lang))
+                                # Highlight profitable trades in green
+                                if row[get_text("net_inv_pl", lang)] > 0:
+                                    styles[net_pl_col] = 'background-color: lightgreen'
+                                elif row[get_text("net_inv_pl", lang)] < 0:
+                                    styles[net_pl_col] = 'background-color: lightcoral'
+                                return styles
+                            
+                            st.dataframe(
+                                display_df.style.apply(style_preview, axis=1).format({
+                                    get_text("original_pl", lang): '{:.2f}',
+                                    get_text("runup", lang): '{:.2f}',
+                                    get_text("drawdown", lang): '{:.2f}',
+                                    get_text("gross_inv_pl", lang): '{:.2f}',
+                                    get_text("commission", lang): '{:.2f}',
+                                    get_text("net_inv_pl", lang): '{:.2f}'
+                                }),
+                                height=400,
+                                use_container_width=True
+                            )
+                            
+                            # Summary statistics for the preview
+                            st.markdown("#### " + get_text("preview_summary", lang))
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                gross_pl_points = preview_df['gross_pl_points'].sum()
+                                gross_pl_dollars = gross_pl_points * point_value * contract_size
+                                st.metric(
+                                    get_text("total_gross_pl", lang),
+                                    f"{gross_pl_points:.2f} pts",
+                                    delta=f"${gross_pl_dollars:.2f}"
+                                )
+                            
+                            with col2:
+                                total_comm_points = preview_df['commission_points'].sum()
+                                total_comm_dollars = total_comm_points * point_value * contract_size
+                                st.metric(
+                                    get_text("total_commission", lang),
+                                    f"{total_comm_points:.2f} pts",
+                                    delta=f"-${total_comm_dollars:.2f}",
+                                    delta_color="normal"
+                                )
+                            
+                            with col3:
+                                net_pl_points = preview_df['net_pl_points'].sum()
+                                net_pl_dollars = net_pl_points * point_value * contract_size
+                                st.metric(
+                                    get_text("total_net_pl", lang),
+                                    f"{net_pl_points:.2f} pts",
+                                    delta=f"${net_pl_dollars:.2f}"
+                                )
+                            
+                            with col4:
+                                preview_hit_rate = (preview_df['net_pl_points'] > 0).sum() / len(preview_df) * 100
+                                st.metric(
+                                    get_text("hit_rate", lang),
+                                    f"{preview_hit_rate:.1f}%"
+                                )
+                            
+                            st.info(get_text("calculation_note", lang, tp=best_row['TP'], sl=best_row['SL']))
+                    except Exception as e:
+                        st.error(f"Error in calculation preview: {str(e)}")
+                        st.write("Error details:", type(e).__name__)
+                        import traceback
+                        st.text(traceback.format_exc())
                     
 # LLM Assistant
 st.header(get_text("ai_assistant", lang))
