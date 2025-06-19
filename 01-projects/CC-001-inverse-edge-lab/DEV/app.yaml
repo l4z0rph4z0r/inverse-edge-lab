@@ -1,0 +1,33 @@
+name: inverse-edge-lab
+region: nyc
+services:
+  - name: web
+    github:
+      repo: l4z0rph4z0r/inverse-edge-lab
+      branch: main
+      deploy_on_push: true
+    dockerfile_path: Dockerfile
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    http_port: 8501
+    routes:
+      - path: /
+    health_check:
+      http_path: /_stcore/health
+      initial_delay_seconds: 30
+      period_seconds: 30
+      timeout_seconds: 10
+      success_threshold: 1
+      failure_threshold: 3
+    envs:
+      - key: UPSTASH_REDIS_REST_URL
+        type: SECRET
+        value: ${UPSTASH_REDIS_REST_URL}
+      - key: UPSTASH_REDIS_REST_TOKEN
+        type: SECRET
+        value: ${UPSTASH_REDIS_REST_TOKEN}
+      - key: PERPLEXITY_API_KEY
+        type: SECRET
+        value: ${PERPLEXITY_API_KEY}
+      - key: PYTHONUNBUFFERED
+        value: "1"
